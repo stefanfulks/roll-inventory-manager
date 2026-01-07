@@ -68,8 +68,8 @@ export default function Receive() {
     width_ft: '',
     length_ft: '100',
     purchase_order: '',
-    quantity: 1
-  });
+    quantity: 0
+    });
 
   // CSV state
   const [csvFile, setCsvFile] = useState(null);
@@ -209,13 +209,13 @@ export default function Receive() {
 
     setCreatedRolls(created);
     setIsCreating(false);
-    toast.success(`${created.length} rolls received - add location & mfr roll # to complete!`, { duration: 5000 });
+    toast.success(`${created.length} rolls added successfully! Add location & mfr roll # to complete.`, { duration: 5000 });
 
     setRapidForm(prev => ({
       ...prev,
       dye_lot: '',
       length_ft: '100',
-      quantity: 1,
+      quantity: 0,
       purchase_order: '',
     }));
   };

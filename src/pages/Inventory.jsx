@@ -327,7 +327,14 @@ export default function Inventory() {
                       </TableCell>
                       <TableCell className="font-mono font-medium">{roll.tt_sku_tag_number || roll.roll_tag}</TableCell>
                       <TableCell><OwnerBadge owner={roll.inventory_owner} size="sm" /></TableCell>
-                      <TableCell className="font-medium">{roll.product_name}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link 
+                          to={createPageUrl(`Products`)} 
+                          className="hover:text-emerald-600 hover:underline transition-colors"
+                        >
+                          {roll.product_name}
+                        </Link>
+                      </TableCell>
                       <TableCell className="text-slate-600">{roll.dye_lot}</TableCell>
                       <TableCell>{roll.width_ft}ft</TableCell>
                       <TableCell>
