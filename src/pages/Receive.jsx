@@ -55,7 +55,6 @@ export default function Receive() {
     length_ft: '100',
     location: '',
     purchase_order: '',
-    condition: 'New',
     notes: ''
   });
 
@@ -142,7 +141,7 @@ export default function Receive() {
       original_length_ft: parseFloat(singleForm.length_ft),
       current_length_ft: parseFloat(singleForm.length_ft),
       roll_type: 'Parent',
-      condition: singleForm.condition,
+      condition: 'New',
       location_bin,
       location_row,
       status: 'Available',
@@ -495,41 +494,23 @@ export default function Receive() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Location (Bin-Row) *</Label>
-                      <Select
-                        value={singleForm.location}
-                        onValueChange={v => setSingleForm(p => ({ ...p, location: v }))}
-                      >
-                        <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
-                        <SelectContent>
-                          {Array.from({ length: 9 }, (_, i) => i + 1).flatMap(bin =>
-                            ['A', 'B', 'C'].map(row => (
-                              <SelectItem key={`${bin}-${row}`} value={`${bin}-${row}`}>
-                                {bin}-{row}
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Condition</Label>
-                      <Select 
-                        value={singleForm.condition} 
-                        onValueChange={v => setSingleForm(p => ({ ...p, condition: v }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="New">New</SelectItem>
-                          <SelectItem value="Good">Good</SelectItem>
-                          <SelectItem value="Used">Used</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="space-y-2">
+                    <Label>Location (Bin-Row) *</Label>
+                    <Select
+                      value={singleForm.location}
+                      onValueChange={v => setSingleForm(p => ({ ...p, location: v }))}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 9 }, (_, i) => i + 1).flatMap(bin =>
+                          ['A', 'B', 'C'].map(row => (
+                            <SelectItem key={`${bin}-${row}`} value={`${bin}-${row}`}>
+                              {bin}-{row}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="space-y-2">
