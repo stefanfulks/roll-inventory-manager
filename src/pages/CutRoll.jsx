@@ -84,7 +84,8 @@ export default function CutRoll() {
 
   const handleSearch = (searchTerm) => {
     const found = rolls.find(r => 
-      r.tt_sku_tag_number?.toLowerCase() === searchTerm.toLowerCase()
+      r.tt_sku_tag_number?.toLowerCase() === searchTerm.toLowerCase() ||
+      r.roll_tag?.toLowerCase() === searchTerm.toLowerCase()
     );
     if (found) {
       setSelectedRoll(found);
@@ -232,7 +233,7 @@ export default function CutRoll() {
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <p className="font-mono font-bold text-lg">{selectedRoll.tt_sku_tag_number}</p>
+                    <p className="font-mono font-bold text-lg">{selectedRoll.tt_sku_tag_number || selectedRoll.roll_tag}</p>
                     <p className="text-slate-600">{selectedRoll.product_name}</p>
                   </div>
                   <OwnerBadge owner={selectedRoll.inventory_owner} size="sm" />

@@ -91,6 +91,7 @@ export default function Inventory() {
       const search = searchTerm.toLowerCase();
       return (
         roll.tt_sku_tag_number?.toLowerCase().includes(search) ||
+        roll.roll_tag?.toLowerCase().includes(search) ||
         roll.product_name?.toLowerCase().includes(search) ||
         roll.dye_lot?.toLowerCase().includes(search) ||
         roll.location_name?.toLowerCase().includes(search)
@@ -325,7 +326,7 @@ export default function Inventory() {
                           onCheckedChange={(checked) => handleSelectRoll(roll.id, checked)}
                         />
                       </TableCell>
-                      <TableCell className="font-mono font-medium">{roll.tt_sku_tag_number}</TableCell>
+                      <TableCell className="font-mono font-medium">{roll.tt_sku_tag_number || roll.roll_tag}</TableCell>
                       <TableCell><OwnerBadge owner={roll.inventory_owner} size="sm" /></TableCell>
                       <TableCell className="font-medium">
                         <Link 
@@ -388,7 +389,7 @@ export default function Inventory() {
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit Roll: {editingRoll?.tt_sku_tag_number}</DialogTitle>
+            <DialogTitle>Edit Roll: {editingRoll?.tt_sku_tag_number || editingRoll?.roll_tag}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
