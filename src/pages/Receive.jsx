@@ -112,6 +112,7 @@ export default function Receive() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     }
   });
 
