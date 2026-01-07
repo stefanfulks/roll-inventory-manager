@@ -86,7 +86,7 @@ export default function RollDetail() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 font-mono">
-                {roll.tt_sku_tag_number || roll.roll_tag}
+                {roll.tt_sku_tag_number}
               </h1>
               <StatusBadge status={roll.roll_type} />
               <StatusBadge status={roll.status} />
@@ -188,7 +188,7 @@ export default function RollDetail() {
                   <div>
                     <p className="text-sm text-slate-500 mb-1">TT SKU #</p>
                     <p className="font-mono font-medium text-slate-800">
-                      {parentRoll.tt_sku_tag_number || parentRoll.roll_tag}
+                      {parentRoll.tt_sku_tag_number}
                     </p>
                   </div>
                   <div>
@@ -238,7 +238,7 @@ export default function RollDetail() {
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-mono text-sm font-medium">
-                          {child.tt_sku_tag_number || child.roll_tag}
+                          {child.tt_sku_tag_number}
                         </span>
                         <StatusBadge status={child.status} size="sm" />
                       </div>

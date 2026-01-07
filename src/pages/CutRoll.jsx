@@ -84,14 +84,13 @@ export default function CutRoll() {
 
   const handleSearch = (searchTerm) => {
     const found = rolls.find(r => 
-      r.roll_tag?.toLowerCase() === searchTerm.toLowerCase() ||
-      r.roll_tag?.toLowerCase().includes(searchTerm.toLowerCase())
+      r.tt_sku_tag_number?.toLowerCase() === searchTerm.toLowerCase()
     );
     if (found) {
       setSelectedRoll(found);
       setCreatedChild(null);
     } else {
-      toast.error('Roll not found or not available for cutting');
+      toast.error('Roll not found, not available, or not a parent roll');
     }
   };
 
@@ -219,13 +218,13 @@ export default function CutRoll() {
         {/* Search & Select */}
         <Card className="rounded-2xl border-slate-100 shadow-sm">
           <CardHeader>
-            <CardTitle>1. Select Parent Roll</CardTitle>
-            <CardDescription>Scan or search for the roll to cut</CardDescription>
+            <CardTitle>1. Search Parent Roll</CardTitle>
+            <CardDescription>Search for an available roll by TT SKU #</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <RollSearch 
               onSearch={handleSearch}
-              placeholder="Scan roll tag..."
+              placeholder="Search TT SKU #..."
               autoFocus
             />
 
@@ -233,7 +232,7 @@ export default function CutRoll() {
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <p className="font-mono font-bold text-lg">{selectedRoll.roll_tag}</p>
+                    <p className="font-mono font-bold text-lg">{selectedRoll.tt_sku_tag_number}</p>
                     <p className="text-slate-600">{selectedRoll.product_name}</p>
                   </div>
                   <OwnerBadge owner={selectedRoll.inventory_owner} size="sm" />

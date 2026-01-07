@@ -359,6 +359,73 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
+
+        {/* Full vs Partial Rolls Count */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Full vs Partial Rolls by Product</h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart 
+                data={Object.entries(
+                  availableRolls.reduce((acc, r) => {
+                    if (!acc[r.product_name]) {
+                      acc[r.product_name] = { name: r.product_name, full: 0, partial: 0 };
+                    }
+                    if (r.current_length_ft >= r.original_length_ft * 0.95) {
+                      acc[r.product_name].full++;
+                    } else {
+                      acc[r.product_name].partial++;
+                    }
+                    return acc;
+                  }, {})
+                ).map(([_, data]) => data).sort((a, b) => (b.full + b.partial) - (a.full + a.partial)).slice(0, 8)}
+                layout="vertical"
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis type="number" tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="full" stackId="a" fill="#10b981" name="Full Rolls" />
+                <Bar dataKey="partial" stackId="a" fill="#f59e0b" name="Partial Rolls" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Full vs Partial Sq Ft */}
+        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Full vs Partial Sq Ft by Product</h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart 
+                data={Object.entries(
+                  availableRolls.reduce((acc, r) => {
+                    if (!acc[r.product_name]) {
+                      acc[r.product_name] = { name: r.product_name, full: 0, partial: 0 };
+                    }
+                    const sqft = r.current_length_ft * r.width_ft;
+                    if (r.current_length_ft >= r.original_length_ft * 0.95) {
+                      acc[r.product_name].full += sqft;
+                    } else {
+                      acc[r.product_name].partial += sqft;
+                    }
+                    return acc;
+                  }, {})
+                ).map(([_, data]) => ({ ...data, full: Math.round(data.full), partial: Math.round(data.partial) })).sort((a, b) => (b.full + b.partial) - (a.full + a.partial)).slice(0, 8)}
+                layout="vertical"
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis type="number" tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
+                <Tooltip formatter={(value) => `${value.toLocaleString()} sq ft`} />
+                <Legend />
+                <Bar dataKey="full" stackId="a" fill="#10b981" name="Full Rolls" />
+                <Bar dataKey="partial" stackId="a" fill="#f59e0b" name="Partial Rolls" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </div>
 
       {/* Low Inventory Dialog */}

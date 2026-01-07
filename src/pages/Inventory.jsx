@@ -90,7 +90,7 @@ export default function Inventory() {
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
       return (
-        roll.roll_tag?.toLowerCase().includes(search) ||
+        roll.tt_sku_tag_number?.toLowerCase().includes(search) ||
         roll.product_name?.toLowerCase().includes(search) ||
         roll.dye_lot?.toLowerCase().includes(search) ||
         roll.location_name?.toLowerCase().includes(search)
@@ -231,7 +231,7 @@ export default function Inventory() {
       <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm space-y-4">
         <RollSearch 
           onSearch={setSearchTerm} 
-          placeholder="Search roll tag, product, dye lot, location..."
+          placeholder="Search TT SKU #, product, dye lot, location..."
           autoFocus
         />
         
@@ -297,7 +297,7 @@ export default function Inventory() {
                       onCheckedChange={handleSelectAll}
                     />
                   </TableHead>
-                  <TableHead className="font-semibold">Roll Tag</TableHead>
+                  <TableHead className="font-semibold">TT SKU #</TableHead>
                   <TableHead className="font-semibold">Owner</TableHead>
                   <TableHead className="font-semibold">Product</TableHead>
                   <TableHead className="font-semibold">Dye Lot</TableHead>
@@ -325,7 +325,7 @@ export default function Inventory() {
                           onCheckedChange={(checked) => handleSelectRoll(roll.id, checked)}
                         />
                       </TableCell>
-                      <TableCell className="font-mono font-medium">{roll.tt_sku_tag_number || roll.roll_tag}</TableCell>
+                      <TableCell className="font-mono font-medium">{roll.tt_sku_tag_number}</TableCell>
                       <TableCell><OwnerBadge owner={roll.inventory_owner} size="sm" /></TableCell>
                       <TableCell className="font-medium">
                         <Link 
