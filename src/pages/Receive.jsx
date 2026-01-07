@@ -65,12 +65,9 @@ export default function Receive() {
     product_name: '',
     manufacturer_id: '',
     manufacturer_name: '',
-    manufacturer_roll_number: '',
     dye_lot: '',
     width_ft: '',
     length_ft: '100',
-    location_bin: '',
-    location_row: '',
     purchase_order: '',
     quantity: 1
   });
@@ -173,7 +170,7 @@ export default function Receive() {
   };
 
   const handleRapidReceive = async () => {
-    const requiredFields = ['manufacturer_id', 'product_id', 'dye_lot', 'width_ft', 'length_ft', 'location_bin', 'location_row', 'purchase_order', 'quantity'];
+    const requiredFields = ['manufacturer_id', 'product_id', 'dye_lot', 'width_ft', 'length_ft', 'purchase_order', 'quantity'];
     for (const field of requiredFields) {
       if (!rapidForm[field]) {
         toast.error(`Please fill in all required fields`);
@@ -187,7 +184,6 @@ export default function Receive() {
       const tt_sku_tag_number = generateTTSKUTagNumber();
       rollsToCreate.push({
         tt_sku_tag_number,
-        manufacturer_roll_number: rapidForm.manufacturer_roll_number || tt_sku_tag_number,
         vendor_id: rapidForm.manufacturer_id,
         vendor_name: rapidForm.manufacturer_name,
         product_id: rapidForm.product_id,
@@ -198,9 +194,7 @@ export default function Receive() {
         current_length_ft: parseFloat(rapidForm.length_ft),
         roll_type: 'Parent',
         condition: 'New',
-        location_bin: rapidForm.location_bin,
-        location_row: rapidForm.location_row,
-        status: 'Available',
+        status: 'AwaitingLocation',
         date_received: new Date().toISOString().split('T')[0],
         purchase_order: rapidForm.purchase_order,
       });
@@ -214,16 +208,13 @@ export default function Receive() {
 
     setCreatedRolls(created);
     setIsCreating(false);
-    toast.success(`${created.length} rolls received successfully!`);
+    toast.success(`${created.length} rolls received - add location & mfr roll # to complete!`, { duration: 5000 });
 
     setRapidForm(prev => ({
       ...prev,
       dye_lot: '',
-      manufacturer_roll_number: '',
       length_ft: '100',
       quantity: 1,
-      location_bin: '',
-      location_row: '',
       purchase_order: '',
     }));
   };
@@ -650,52 +641,18 @@ export default function Receive() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label>Bin *</Label>
-                      <Select
-                        value={rapidForm.location_bin}
-                        onValueChange={v => setRapidForm(p => ({ ...p, location_bin: v }))}
-                      >
-                        <SelectTrigger><SelectValue placeholder="1-9" /></SelectTrigger>
-                        <SelectContent>
-                          {Array.from({ length: 9 }, (_, i) => i + 1).map(bin => (
-                            <SelectItem key={bin} value={bin.toString()}>{bin}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Row *</Label>
-                      <Select
-                        value={rapidForm.location_row}
-                        onValueChange={v => setRapidForm(p => ({ ...p, location_row: v }))}
-                      >
-                        <SelectTrigger><SelectValue placeholder="A-C" /></SelectTrigger>
-                        <SelectContent>
-                          {['A', 'B', 'C'].map(row => (
-                            <SelectItem key={row} value={row}>{row}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>PO # *</Label>
-                      <Input 
-                        value={rapidForm.purchase_order}
-                        onChange={e => setRapidForm(p => ({ ...p, purchase_order: e.target.value }))}
-                        placeholder="PO number"
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label>PO # *</Label>
+                    <Input 
+                      value={rapidForm.purchase_order}
+                      onChange={e => setRapidForm(p => ({ ...p, purchase_order: e.target.value }))}
+                      placeholder="Purchase order number"
+                    />
                   </div>
                   
-                  <div className="space-y-2">
-                    <Label>Manufacturer Roll Number (optional)</Label>
-                    <Input 
-                      value={rapidForm.manufacturer_roll_number}
-                      onChange={e => setRapidForm(p => ({ ...p, manufacturer_roll_number: e.target.value }))}
-                      placeholder="If available from manufacturer"
-                    />
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+                    <p className="font-medium mb-1">⚠️ Location & Manufacturer Roll # Required After Creation</p>
+                    <p>Rolls created via rapid entry will need location (bin/row) and manufacturer roll number added individually after creation.</p>
                   </div>
 
                   <Button 
@@ -792,7 +749,11 @@ export default function Receive() {
                       <p className="text-sm text-emerald-600">
                         {roll.product_name} • {roll.width_ft}ft × {roll.current_length_ft}ft
                       </p>
-                      <p className="text-xs text-emerald-500 mt-1">Location: {roll.location_bin}{roll.location_row}</p>
+                      {roll.location_bin && roll.location_row ? (
+                        <p className="text-xs text-emerald-500 mt-1">Location: {roll.location_bin}{roll.location_row}</p>
+                      ) : (
+                        <p className="text-xs text-red-600 mt-1 font-medium">⚠️ Location needed</p>
+                      )}
                     </div>
                   ))}
                 </div>

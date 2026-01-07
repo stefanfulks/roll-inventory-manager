@@ -11,6 +11,7 @@ const statusStyles = {
   Consumed: "bg-slate-200 text-slate-600",
   Scrapped: "bg-red-100 text-red-700",
   ReturnedHold: "bg-orange-100 text-orange-700",
+  AwaitingLocation: "bg-red-100 text-red-700",
   
   // Bundle statuses
   Draft: "bg-slate-100 text-slate-600",
