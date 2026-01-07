@@ -10,7 +10,8 @@ import {
   Calendar,
   MapPin,
   Search,
-  Package
+  Package,
+  Send
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,6 +82,11 @@ export default function JobDetail() {
     queryFn: () => base44.entities.Accessory.list(),
   });
 
+  const { data: materials = [] } = useQuery({
+    queryKey: ['materials'],
+    queryFn: () => base44.entities.Material.list(),
+  });
+
   const createAllocationMutation = useMutation({
     mutationFn: async (items) => {
       for (const item of items) {
@@ -94,6 +100,29 @@ export default function JobDetail() {
             dye_lot_preference: item.dye_lot,
             requested_length_ft: item.current_length_ft,
             allocated_roll_ids: [item.id],
+            item_type: 'roll',
+            status: 'Planned'
+          });
+        } else if (item.type === 'accessory') {
+          await base44.entities.Allocation.create({
+            job_id: jobId,
+            job_name: job.job_name || job.job_number,
+            product_name: item.item_name,
+            item_id: item.id,
+            item_type: 'accessory',
+            requested_quantity: 1,
+            unit_of_measure: item.unit_of_measure,
+            status: 'Planned'
+          });
+        } else if (item.type === 'material') {
+          await base44.entities.Allocation.create({
+            job_id: jobId,
+            job_name: job.job_name || job.job_number,
+            product_name: item.item_name,
+            item_id: item.id,
+            item_type: 'material',
+            requested_quantity: 1,
+            unit_of_measure: item.unit_of_measure,
             status: 'Planned'
           });
         }
@@ -101,10 +130,11 @@ export default function JobDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       setShowAddProducts(false);
       setSelectedItems([]);
       setSearchTerm('');
-      toast.success('Products added to job');
+      toast.success('Items added to job');
     }
   });
 
@@ -114,7 +144,101 @@ export default function JobDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       toast.success('Allocation removed');
+    }
+  });
+
+  const sendOutMutation = useMutation({
+    mutationFn: async () => {
+      const user = await base44.auth.me();
+      
+      // Update job status
+      await base44.entities.Job.update(jobId, { status: 'SentOut' });
+
+      // Process each allocation
+      for (const allocation of allocations) {
+        if (allocation.item_type === 'roll' && allocation.allocated_roll_ids?.length > 0) {
+          for (const rollId of allocation.allocated_roll_ids) {
+            // Update roll status
+            await base44.entities.Roll.update(rollId, { status: 'SentOut' });
+            
+            // Create transaction
+            const roll = rolls.find(r => r.id === rollId);
+            if (roll) {
+              await base44.entities.Transaction.create({
+                transaction_type: 'SendOutToJob',
+                fulfillment_for: job.fulfillment_for,
+                roll_id: rollId,
+                tt_sku_tag_number: roll.tt_sku_tag_number || roll.roll_tag,
+                job_id: jobId,
+                job_number: job.job_number,
+                product_name: roll.product_name,
+                dye_lot: roll.dye_lot,
+                width_ft: roll.width_ft,
+                length_change_ft: -roll.current_length_ft,
+                length_before_ft: roll.current_length_ft,
+                length_after_ft: 0,
+                performed_by: user.email,
+                notes: `Sent out to job ${job.job_number}`
+              });
+            }
+          }
+        } else if (allocation.item_type === 'accessory') {
+          // Decrement accessory quantity
+          const accessory = accessories.find(a => a.id === allocation.item_id);
+          if (accessory) {
+            await base44.entities.Accessory.update(allocation.item_id, {
+              quantity_on_hand: accessory.quantity_on_hand - (allocation.requested_quantity || 1)
+            });
+            
+            // Create transaction
+            await base44.entities.Transaction.create({
+              transaction_type: 'SendOutToJob',
+              fulfillment_for: job.fulfillment_for,
+              job_id: jobId,
+              job_number: job.job_number,
+              product_name: accessory.item_name,
+              performed_by: user.email,
+              notes: `Sent ${allocation.requested_quantity || 1} ${accessory.unit_of_measure} to job ${job.job_number}`
+            });
+          }
+        } else if (allocation.item_type === 'material') {
+          // Decrement material quantity
+          const material = materials.find(m => m.id === allocation.item_id);
+          if (material) {
+            await base44.entities.Material.update(allocation.item_id, {
+              quantity_on_hand: material.quantity_on_hand - (allocation.requested_quantity || 1)
+            });
+            
+            // Create transaction
+            await base44.entities.Transaction.create({
+              transaction_type: 'SendOutToJob',
+              fulfillment_for: job.fulfillment_for,
+              job_id: jobId,
+              job_number: job.job_number,
+              product_name: material.item_name,
+              performed_by: user.email,
+              notes: `Sent ${allocation.requested_quantity || 1} ${material.unit_of_measure} to job ${job.job_number}`
+            });
+          }
+        }
+        
+        // Update allocation status
+        await base44.entities.Allocation.update(allocation.id, { status: 'Fulfilled' });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      queryClient.invalidateQueries({ queryKey: ['accessories'] });
+      queryClient.invalidateQueries({ queryKey: ['materials'] });
+      toast.success('Job sent out successfully');
+    },
+    onError: (error) => {
+      toast.error('Failed to send out job');
+      console.error(error);
     }
   });
 
@@ -135,10 +259,11 @@ export default function JobDetail() {
     createAllocationMutation.mutate(selectedItems);
   };
 
-  const filteredInventory = [...rolls, ...accessories].filter(item => {
+  const filteredInventory = [...rolls, ...accessories, ...materials].filter(item => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
     const isTurf = item.tt_sku_tag_number !== undefined;
+    const isAccessoryOrMaterial = item.item_name !== undefined;
     
     if (isTurf) {
       return (
@@ -146,12 +271,13 @@ export default function JobDetail() {
         item.product_name?.toLowerCase().includes(search) ||
         item.dye_lot?.toLowerCase().includes(search)
       );
-    } else {
+    } else if (isAccessoryOrMaterial) {
       return (
         item.item_name?.toLowerCase().includes(search) ||
         item.sku?.toLowerCase().includes(search)
       );
     }
+    return false;
   });
 
   if (isLoading) {
@@ -180,19 +306,32 @@ export default function JobDetail() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link to={createPageUrl('Jobs')}>
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        </Link>
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">{job.job_name}</h1>
-            <StatusBadge status={job.status} />
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <Link to={createPageUrl('Jobs')}>
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          </Link>
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">{job.job_number}</h1>
+              <StatusBadge status={job.status} />
+              <OwnerBadge owner={job.fulfillment_for} />
+            </div>
+            <p className="text-slate-500 mt-1">{job.customer_name || 'No customer name'}</p>
           </div>
-          <p className="text-slate-500 mt-1">{job.customer_name}</p>
         </div>
+        {job.status === 'Draft' && allocations.length > 0 && (
+          <Button 
+            onClick={() => sendOutMutation.mutate()}
+            disabled={sendOutMutation.isPending}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            <Send className="h-4 w-4 mr-2" />
+            Send Out Job
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -306,14 +445,15 @@ export default function JobDetail() {
                     <div className="divide-y">
                       {filteredInventory.map(item => {
                         const isTurf = item.tt_sku_tag_number !== undefined;
-                        const isSelected = selectedItems.find(i => i.id === item.id && i.type === (isTurf ? 'roll' : 'accessory'));
+                        const itemType = isTurf ? 'roll' : (item.unit_of_measure && accessories.some(a => a.id === item.id) ? 'accessory' : 'material');
+                        const isSelected = selectedItems.find(i => i.id === item.id && i.type === itemType);
                         
                         return (
                           <div 
-                            key={`${isTurf ? 'roll' : 'accessory'}-${item.id}`}
+                            key={`${itemType}-${item.id}`}
                             onClick={() => handleToggleItem({
                               ...item,
-                              type: isTurf ? 'roll' : 'accessory'
+                              type: itemType
                             })}
                             className={`p-4 cursor-pointer hover:bg-slate-50 transition-colors ${
                               isSelected ? 'bg-emerald-50 border-l-4 border-emerald-600' : ''
@@ -385,11 +525,9 @@ export default function JobDetail() {
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
-                <TableHead>Product</TableHead>
-                <TableHead>Width</TableHead>
-                <TableHead>Requested</TableHead>
-                <TableHead>Allocated</TableHead>
-                <TableHead>Dye Lot Preference</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Item</TableHead>
+                <TableHead>Details</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
@@ -397,21 +535,31 @@ export default function JobDetail() {
             <TableBody>
               {allocations.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-slate-500">
+                  <TableCell colSpan={5} className="text-center py-8 text-slate-500">
                     No allocations yet
                   </TableCell>
                 </TableRow>
               ) : (
                 allocations.map((allocation) => (
                   <TableRow key={allocation.id}>
-                    <TableCell className="font-medium">{allocation.product_name}</TableCell>
-                    <TableCell>{allocation.width_ft} ft</TableCell>
-                    <TableCell>{allocation.requested_length_ft} ft</TableCell>
-                    <TableCell className="font-medium text-emerald-600">
-                      {allocation.allocated_length_ft || 0} ft
+                    <TableCell>
+                      <StatusBadge 
+                        status={allocation.item_type === 'roll' ? 'Parent' : allocation.item_type === 'accessory' ? 'Accessory' : 'Material'} 
+                        size="sm" 
+                      />
                     </TableCell>
+                    <TableCell className="font-medium">{allocation.product_name}</TableCell>
                     <TableCell className="text-slate-600">
-                      {allocation.dye_lot_preference || '-'}
+                      {allocation.item_type === 'roll' ? (
+                        <>
+                          {allocation.width_ft}ft × {allocation.requested_length_ft}ft
+                          {allocation.dye_lot_preference && ` • Dye Lot: ${allocation.dye_lot_preference}`}
+                        </>
+                      ) : (
+                        <>
+                          {allocation.requested_quantity || 1} {allocation.unit_of_measure || 'unit'}
+                        </>
+                      )}
                     </TableCell>
                     <TableCell><StatusBadge status={allocation.status} size="sm" /></TableCell>
                     <TableCell>
@@ -419,7 +567,7 @@ export default function JobDetail() {
                         variant="ghost" 
                         size="sm"
                         onClick={() => deleteAllocationMutation.mutate(allocation.id)}
-                        disabled={deleteAllocationMutation.isPending}
+                        disabled={deleteAllocationMutation.isPending || job.status !== 'Draft'}
                         className="text-red-500 hover:text-red-700"
                       >
                         <Trash2 className="h-4 w-4" />
