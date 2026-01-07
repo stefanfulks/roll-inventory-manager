@@ -44,6 +44,13 @@ export default function RollDetail() {
     enabled: !!rollId && roll?.roll_type === 'Parent',
   });
 
+  const { data: parentRoll } = useQuery({
+    queryKey: ['parentRoll', roll?.parent_roll_id],
+    queryFn: () => base44.entities.Roll.filter({ id: roll.parent_roll_id }),
+    enabled: !!roll?.parent_roll_id,
+    select: (data) => data[0],
+  });
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -78,7 +85,9 @@ export default function RollDetail() {
           </Link>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 font-mono">{roll.roll_tag}</h1>
+              <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 font-mono">
+                {roll.tt_sku_tag_number || roll.roll_tag}
+              </h1>
               <StatusBadge status={roll.roll_type} />
               <StatusBadge status={roll.status} />
             </div>
@@ -169,17 +178,45 @@ export default function RollDetail() {
           </Card>
 
           {/* Parent Roll Info (for child rolls) */}
-          {roll.roll_type === 'Child' && roll.parent_roll_id && (
+          {roll.roll_type === 'Child' && parentRoll && (
             <Card className="rounded-2xl border-slate-100 shadow-sm">
               <CardHeader>
                 <CardTitle className="text-lg">Parent Roll</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">TT SKU #</p>
+                    <p className="font-mono font-medium text-slate-800">
+                      {parentRoll.tt_sku_tag_number || parentRoll.roll_tag}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">Manufacturer Roll #</p>
+                    <p className="font-medium text-slate-800">{parentRoll.manufacturer_roll_number || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">Product</p>
+                    <p className="font-medium text-slate-800">{parentRoll.product_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">Dye Lot</p>
+                    <p className="font-medium text-slate-800">{parentRoll.dye_lot}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">Current Length</p>
+                    <p className="font-medium text-slate-800">{parentRoll.current_length_ft} ft</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">Status</p>
+                    <StatusBadge status={parentRoll.status} size="sm" />
+                  </div>
+                </div>
                 <Link 
                   to={createPageUrl(`RollDetail?id=${roll.parent_roll_id}`)}
-                  className="text-emerald-600 hover:text-emerald-700 font-medium"
+                  className="inline-block text-emerald-600 hover:text-emerald-700 font-medium text-sm"
                 >
-                  View Parent Roll →
+                  View Full Parent Details →
                 </Link>
               </CardContent>
             </Card>
@@ -197,13 +234,25 @@ export default function RollDetail() {
                     <Link
                       key={child.id}
                       to={createPageUrl(`RollDetail?id=${child.id}`)}
-                      className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+                      className="block p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
                     >
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-sm">{child.roll_tag}</span>
-                        <span className="text-slate-500">{child.current_length_ft}ft</span>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-mono text-sm font-medium">
+                          {child.tt_sku_tag_number || child.roll_tag}
+                        </span>
+                        <StatusBadge status={child.status} size="sm" />
                       </div>
-                      <StatusBadge status={child.status} size="sm" />
+                      <div className="flex items-center gap-4 text-xs text-slate-600">
+                        <span>{child.width_ft}ft × {child.current_length_ft}ft</span>
+                        <span>•</span>
+                        <span>Dye Lot: {child.dye_lot}</span>
+                        {child.location_bin && child.location_row && (
+                          <>
+                            <span>•</span>
+                            <span>Location: {child.location_bin}-{child.location_row}</span>
+                          </>
+                        )}
+                      </div>
                     </Link>
                   ))}
                 </div>

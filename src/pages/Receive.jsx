@@ -182,9 +182,8 @@ export default function Receive() {
     setIsCreating(true);
     const rollsToCreate = [];
     for (let i = 0; i < rapidForm.quantity; i++) {
-      const tt_sku_tag_number = generateTTSKUTagNumber();
       rollsToCreate.push({
-        tt_sku_tag_number,
+        tt_sku_tag_number: '',
         vendor_id: rapidForm.manufacturer_id,
         vendor_name: rapidForm.manufacturer_name,
         product_id: rapidForm.product_id,

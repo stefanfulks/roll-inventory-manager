@@ -14,6 +14,7 @@ import Returns from './pages/Returns';
 import RollDetail from './pages/RollDetail';
 import Settings from './pages/Settings';
 import Transactions from './pages/Transactions';
+import PendingInventory from './pages/PendingInventory';
 import __Layout from './Layout.jsx';
 
 
@@ -34,6 +35,7 @@ export const PAGES = {
     "RollDetail": RollDetail,
     "Settings": Settings,
     "Transactions": Transactions,
+    "PendingInventory": PendingInventory,
 }
 
 export const pagesConfig = {

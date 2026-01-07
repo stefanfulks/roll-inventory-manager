@@ -34,6 +34,7 @@ import {
 const navItems = [
   { name: 'Dashboard', page: 'Dashboard', icon: LayoutDashboard },
   { name: 'Inventory', page: 'Inventory', icon: Package },
+  { name: 'Pending', page: 'PendingInventory', icon: FileBox },
   { name: 'Receive', page: 'Receive', icon: FileSpreadsheet },
   { name: 'Cut Roll', page: 'CutRoll', icon: Scissors },
   { name: 'Jobs', page: 'Jobs', icon: ClipboardList },

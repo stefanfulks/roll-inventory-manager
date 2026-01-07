@@ -329,7 +329,7 @@ export default function Inventory() {
                       <TableCell><OwnerBadge owner={roll.inventory_owner} size="sm" /></TableCell>
                       <TableCell className="font-medium">
                         <Link 
-                          to={createPageUrl(`Products`)} 
+                          to={createPageUrl(`RollDetail?id=${roll.id}`)} 
                           className="hover:text-emerald-600 hover:underline transition-colors"
                         >
                           {roll.product_name}
