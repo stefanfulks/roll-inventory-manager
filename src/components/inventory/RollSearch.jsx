@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 export default function RollSearch({ 
   onSearch, 
   onScan,
-  placeholder = "Scan or search roll tag...",
+  placeholder = "Add roll tag SKU...",
   autoFocus = false,
   className
 }) {

@@ -18,7 +18,9 @@ import {
   Building2,
   MapPin,
   Users,
-  FileSpreadsheet
+  FileSpreadsheet,
+  FileBarChart,
+  HelpCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -43,6 +45,9 @@ const adminItems = [
   { name: 'Products', page: 'Products', icon: Package },
   { name: 'Locations', page: 'Locations', icon: MapPin },
   { name: 'Transactions', page: 'Transactions', icon: FileSpreadsheet },
+  { name: 'Settings', page: 'Settings', icon: Settings },
+  { name: 'Reports', page: 'Reports', icon: FileBarChart },
+  { name: 'Help', page: 'Help', icon: HelpCircle },
 ];
 
 export default function Layout({ children, currentPageName }) {
