@@ -29,20 +29,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { toast } from 'sonner';
 
-function generateRollTag() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = 'R-';
-  for (let i = 0; i < 8; i++) {
+function generateTTSKUTagNumber() {
+  const chars = '0123456789';
+  let result = '';
+  for (let i = 0; i < 10; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
-}
-
-function generateCustomSku(owner, productName) {
-  const prefix = owner === 'TexasTurf' ? 'TT' : 'TC';
-  const prodCode = productName?.substring(0, 3).toUpperCase() || 'XXX';
-  const num = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-  return `${prefix}-${prodCode}-${num}`;
 }
 
 export default function Receive() {
@@ -51,15 +44,16 @@ export default function Receive() {
   
   // Single receive state
   const [singleForm, setSingleForm] = useState({
-    inventory_owner: 'TexasTurf',
     product_id: '',
     product_name: '',
+    manufacturer_id: '',
+    manufacturer_name: '',
+    manufacturer_roll_number: '',
     dye_lot: '',
     width_ft: '',
     length_ft: '100',
-    location_id: '',
-    location_name: '',
-    vendor: '',
+    location_bin: '',
+    location_row: '',
     purchase_order: '',
     condition: 'New',
     notes: ''
@@ -67,15 +61,16 @@ export default function Receive() {
 
   // Rapid entry state
   const [rapidForm, setRapidForm] = useState({
-    inventory_owner: 'TexasTurf',
     product_id: '',
     product_name: '',
+    manufacturer_id: '',
+    manufacturer_name: '',
+    manufacturer_roll_number: '',
     dye_lot: '',
     width_ft: '',
     length_ft: '100',
-    location_id: '',
-    location_name: '',
-    vendor: '',
+    location_bin: '',
+    location_row: '',
     purchase_order: '',
     quantity: 1
   });
@@ -93,27 +88,28 @@ export default function Receive() {
     queryFn: () => base44.entities.Product.filter({ status: 'active' }),
   });
 
-  const { data: locations = [] } = useQuery({
-    queryKey: ['locations'],
-    queryFn: () => base44.entities.Location.list(),
+  const { data: manufacturers = [] } = useQuery({
+    queryKey: ['manufacturers'],
+    queryFn: () => base44.entities.Vendor.list(),
   });
 
   const createRollMutation = useMutation({
     mutationFn: async (rollData) => {
       const roll = await base44.entities.Roll.create(rollData);
       await base44.entities.Transaction.create({
-        transaction_type: 'Receive',
-        inventory_owner: rollData.inventory_owner,
+        transaction_type: 'ReceiveRoll',
+        fulfillment_for: 'TexasTurf',
         roll_id: roll.id,
-        roll_tag: rollData.roll_tag,
+        tt_sku_tag_number: rollData.tt_sku_tag_number,
+        manufacturer_roll_number: rollData.manufacturer_roll_number,
         length_change_ft: rollData.current_length_ft,
         length_before_ft: 0,
         length_after_ft: rollData.current_length_ft,
         product_name: rollData.product_name,
         dye_lot: rollData.dye_lot,
         width_ft: rollData.width_ft,
-        location_to: rollData.location_name,
-        notes: `Received: ${rollData.vendor || 'Direct'} PO: ${rollData.purchase_order || 'N/A'}`
+        location_to: `${rollData.location_bin}${rollData.location_row}`,
+        notes: `Received from: ${rollData.vendor_name} PO: ${rollData.purchase_order}`
       });
       return roll;
     },
@@ -124,19 +120,22 @@ export default function Receive() {
   });
 
   const handleSingleReceive = async () => {
-    if (!singleForm.product_name || !singleForm.dye_lot || !singleForm.width_ft) {
-      toast.error('Please fill in Product, Dye Lot, and Width');
-      return;
+    const requiredFields = ['manufacturer_id', 'product_id', 'dye_lot', 'width_ft', 'length_ft', 'location_bin', 'location_row', 'purchase_order'];
+    for (const field of requiredFields) {
+      if (!singleForm[field]) {
+        toast.error(`Please fill in all required fields`);
+        return;
+      }
     }
 
     setIsCreating(true);
-    const rollTag = generateRollTag();
-    const customSku = generateCustomSku(singleForm.inventory_owner, singleForm.product_name);
+    const tt_sku_tag_number = generateTTSKUTagNumber();
 
     const rollData = {
-      roll_tag: rollTag,
-      custom_roll_sku: customSku,
-      inventory_owner: singleForm.inventory_owner,
+      tt_sku_tag_number: tt_sku_tag_number,
+      manufacturer_roll_number: singleForm.manufacturer_roll_number || tt_sku_tag_number,
+      vendor_id: singleForm.manufacturer_id,
+      vendor_name: singleForm.manufacturer_name,
       product_id: singleForm.product_id,
       product_name: singleForm.product_name,
       dye_lot: singleForm.dye_lot,
@@ -145,11 +144,10 @@ export default function Receive() {
       current_length_ft: parseFloat(singleForm.length_ft),
       roll_type: 'Parent',
       condition: singleForm.condition,
-      location_id: singleForm.location_id,
-      location_name: singleForm.location_name,
+      location_bin: singleForm.location_bin,
+      location_row: singleForm.location_row,
       status: 'Available',
       date_received: new Date().toISOString().split('T')[0],
-      vendor: singleForm.vendor,
       purchase_order: singleForm.purchase_order,
       notes: singleForm.notes
     };
@@ -157,36 +155,41 @@ export default function Receive() {
     const roll = await createRollMutation.mutateAsync(rollData);
     setCreatedRolls([roll]);
     setIsCreating(false);
-    toast.success(`Roll ${rollTag} received successfully!`);
+    toast.success(`Roll ${tt_sku_tag_number} received successfully!`);
     
-    // Reset form but keep owner, location, vendor, PO
+    // Reset form but keep manufacturer
     setSingleForm(prev => ({
       ...prev,
       product_id: '',
       product_name: '',
+      manufacturer_roll_number: '',
       dye_lot: '',
-      width_ft: '',
+      length_ft: '100',
+      location_bin: '',
+      location_row: '',
+      purchase_order: '',
       notes: ''
     }));
   };
 
   const handleRapidReceive = async () => {
-    if (!rapidForm.product_name || !rapidForm.dye_lot || !rapidForm.width_ft || !rapidForm.quantity) {
-      toast.error('Please fill in all required fields');
-      return;
+    const requiredFields = ['manufacturer_id', 'product_id', 'dye_lot', 'width_ft', 'length_ft', 'location_bin', 'location_row', 'purchase_order', 'quantity'];
+    for (const field of requiredFields) {
+      if (!rapidForm[field]) {
+        toast.error(`Please fill in all required fields`);
+        return;
+      }
     }
 
     setIsCreating(true);
-    const rolls = [];
-    
+    const rollsToCreate = [];
     for (let i = 0; i < rapidForm.quantity; i++) {
-      const rollTag = generateRollTag();
-      const customSku = generateCustomSku(rapidForm.inventory_owner, rapidForm.product_name);
-
-      const rollData = {
-        roll_tag: rollTag,
-        custom_roll_sku: customSku,
-        inventory_owner: rapidForm.inventory_owner,
+      const tt_sku_tag_number = generateTTSKUTagNumber();
+      rollsToCreate.push({
+        tt_sku_tag_number,
+        manufacturer_roll_number: rapidForm.manufacturer_roll_number || tt_sku_tag_number,
+        vendor_id: rapidForm.manufacturer_id,
+        vendor_name: rapidForm.manufacturer_name,
         product_id: rapidForm.product_id,
         product_name: rapidForm.product_name,
         dye_lot: rapidForm.dye_lot,
@@ -195,21 +198,34 @@ export default function Receive() {
         current_length_ft: parseFloat(rapidForm.length_ft),
         roll_type: 'Parent',
         condition: 'New',
-        location_id: rapidForm.location_id,
-        location_name: rapidForm.location_name,
+        location_bin: rapidForm.location_bin,
+        location_row: rapidForm.location_row,
         status: 'Available',
         date_received: new Date().toISOString().split('T')[0],
-        vendor: rapidForm.vendor,
-        purchase_order: rapidForm.purchase_order
-      };
-
-      const roll = await createRollMutation.mutateAsync(rollData);
-      rolls.push(roll);
+        purchase_order: rapidForm.purchase_order,
+      });
     }
 
-    setCreatedRolls(rolls);
+    const created = [];
+    for (const rollData of rollsToCreate) {
+      const roll = await createRollMutation.mutateAsync(rollData);
+      created.push(roll);
+    }
+
+    setCreatedRolls(created);
     setIsCreating(false);
-    toast.success(`${rolls.length} rolls received successfully!`);
+    toast.success(`${created.length} rolls received successfully!`);
+
+    setRapidForm(prev => ({
+      ...prev,
+      dye_lot: '',
+      manufacturer_roll_number: '',
+      length_ft: '100',
+      quantity: 1,
+      location_bin: '',
+      location_row: '',
+      purchase_order: '',
+    }));
   };
 
   const handleCsvUpload = async (e) => {
@@ -232,6 +248,9 @@ export default function Receive() {
       });
 
       // Validate
+      if (!row.manufacturer_name && !row.manufacturer) {
+        errors.push({ row: i, error: 'Missing manufacturer name' });
+      }
       if (!row.product_name && !row.product) {
         errors.push({ row: i, error: 'Missing product name' });
       }
@@ -240,6 +259,18 @@ export default function Receive() {
       }
       if (!row.width_ft && !row.width) {
         errors.push({ row: i, error: 'Missing width' });
+      }
+      if (!row.length_ft && !row.length) {
+        errors.push({ row: i, error: 'Missing length' });
+      }
+      if (!row.location_bin && !row.bin) {
+        errors.push({ row: i, error: 'Missing location bin' });
+      }
+      if (!row.location_row && !row.row) {
+        errors.push({ row: i, error: 'Missing location row' });
+      }
+      if (!row.purchase_order && !row.po) {
+        errors.push({ row: i, error: 'Missing purchase order' });
       }
 
       row._rowNum = i;
@@ -261,35 +292,55 @@ export default function Receive() {
 
     for (const row of csvData) {
       const qty = parseInt(row.quantity) || 1;
-      const owner = row.inventory_owner || row.owner || 'TexasTurf';
+      const manufacturerName = row.manufacturer_name || row.manufacturer;
       const productName = row.product_name || row.product;
+      const dyeLot = row.dye_lot;
       const width = parseFloat(row.width_ft || row.width);
-      const length = parseFloat(row.length_ft || row.length) || 100;
+      const length = parseFloat(row.length_ft || row.length);
+      const locationBin = row.location_bin || row.bin;
+      const locationRow = row.location_row || row.row;
+      const purchaseOrder = row.po || row.purchase_order;
+
+      const manufacturer = manufacturers.find(m => m.vendor_name === manufacturerName);
+      if (!manufacturer) {
+        toast.error(`Row ${row._rowNum}: Manufacturer '${manufacturerName}' not found.`);
+        continue;
+      }
+      const product = products.find(p => p.product_name === productName);
+      if (!product) {
+        toast.error(`Row ${row._rowNum}: Product '${productName}' not found.`);
+        continue;
+      }
 
       for (let i = 0; i < qty; i++) {
-        const rollTag = generateRollTag();
-        const customSku = generateCustomSku(owner, productName);
+        const tt_sku_tag_number = generateTTSKUTagNumber();
 
         const rollData = {
-          roll_tag: rollTag,
-          custom_roll_sku: customSku,
-          inventory_owner: owner,
-          product_name: productName,
-          dye_lot: row.dye_lot,
+          tt_sku_tag_number: tt_sku_tag_number,
+          manufacturer_roll_number: row.manufacturer_roll_number || tt_sku_tag_number,
+          vendor_id: manufacturer.id,
+          vendor_name: manufacturer.vendor_name,
+          product_id: product.id,
+          product_name: product.product_name,
+          dye_lot: dyeLot,
           width_ft: width,
           original_length_ft: length,
           current_length_ft: length,
           roll_type: 'Parent',
           condition: 'New',
-          location_name: row.location || '',
+          location_bin: locationBin,
+          location_row: locationRow,
           status: 'Available',
           date_received: new Date().toISOString().split('T')[0],
-          vendor: row.vendor || '',
-          purchase_order: row.po || row.purchase_order || ''
+          purchase_order: purchaseOrder
         };
 
-        const roll = await createRollMutation.mutateAsync(rollData);
-        rolls.push(roll);
+        try {
+          const roll = await createRollMutation.mutateAsync(rollData);
+          rolls.push(roll);
+        } catch (error) {
+          toast.error(`Row ${row._rowNum}: Failed to create roll. ${error.message}`);
+        }
       }
     }
 
@@ -312,13 +363,22 @@ export default function Receive() {
     }
   };
 
-  const handleLocationSelect = (locationId, formSetter) => {
-    const location = locations.find(l => l.id === locationId);
-    if (location) {
+  const handleManufacturerSelect = (manufacturerId, formSetter) => {
+    const manufacturer = manufacturers.find(m => m.id === manufacturerId);
+    if (manufacturer) {
+      let defaultWidth = '';
+      if (manufacturer.vendor_name === 'AGL Grass') {
+        defaultWidth = '13';
+      } else if (manufacturer.vendor_name === 'Mighty Grass') {
+        defaultWidth = '15';
+      }
       formSetter(prev => ({
         ...prev,
-        location_id: locationId,
-        location_name: location.name
+        manufacturer_id: manufacturerId,
+        manufacturer_name: manufacturer.vendor_name,
+        width_ft: defaultWidth,
+        product_id: '',
+        product_name: ''
       }));
     }
   };
@@ -328,7 +388,7 @@ export default function Receive() {
       {/* Header */}
       <div>
         <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Receive Inventory</h1>
-        <p className="text-slate-500 mt-1">Add new rolls to inventory</p>
+        <p className="text-slate-500 mt-1">Add new rolls to TexasTurf warehouse inventory</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -338,7 +398,7 @@ export default function Receive() {
             <TabsList className="grid w-full grid-cols-3 mb-6">
               <TabsTrigger value="single" className="flex items-center gap-2">
                 <Plus className="h-4 w-4" />
-                Single
+                Single Roll
               </TabsTrigger>
               <TabsTrigger value="rapid" className="flex items-center gap-2">
                 <Zap className="h-4 w-4" />
@@ -346,7 +406,7 @@ export default function Receive() {
               </TabsTrigger>
               <TabsTrigger value="csv" className="flex items-center gap-2">
                 <FileSpreadsheet className="h-4 w-4" />
-                CSV Upload
+                CSV Import
               </TabsTrigger>
             </TabsList>
 
@@ -360,17 +420,18 @@ export default function Receive() {
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Owner *</Label>
+                      <Label>Manufacturer *</Label>
                       <Select 
-                        value={singleForm.inventory_owner} 
-                        onValueChange={v => setSingleForm(p => ({ ...p, inventory_owner: v }))}
+                        value={singleForm.manufacturer_id}
+                        onValueChange={v => handleManufacturerSelect(v, setSingleForm)}
                       >
                         <SelectTrigger>
-                          <SelectValue />
+                          <SelectValue placeholder="Select manufacturer" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="TexasTurf">TexasTurf</SelectItem>
-                          <SelectItem value="TurfCasa">TurfCasa</SelectItem>
+                          {manufacturers.map(m => (
+                            <SelectItem key={m.id} value={m.id}>{m.vendor_name}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -379,12 +440,14 @@ export default function Receive() {
                       <Select 
                         value={singleForm.product_id} 
                         onValueChange={v => handleProductSelect(v, setSingleForm)}
+                        disabled={!singleForm.manufacturer_id}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Select product" />
                         </SelectTrigger>
                         <SelectContent>
-                          {products.map(p => (
+                          {products.filter(p => !singleForm.width_ft || p.width_options?.includes(parseFloat(singleForm.width_ft)))
+                                    .map(p => (
                             <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -403,21 +466,15 @@ export default function Receive() {
                     </div>
                     <div className="space-y-2">
                       <Label>Width (ft) *</Label>
-                      <Select 
-                        value={singleForm.width_ft} 
-                        onValueChange={v => setSingleForm(p => ({ ...p, width_ft: v }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="13">13 ft</SelectItem>
-                          <SelectItem value="15">15 ft</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Input 
+                        type="number"
+                        value={singleForm.width_ft}
+                        disabled
+                        placeholder="Auto-set"
+                      />
                     </div>
                     <div className="space-y-2">
-                      <Label>Length (ft)</Label>
+                      <Label>Length (ft) *</Label>
                       <Input 
                         type="number"
                         value={singleForm.length_ft}
@@ -426,19 +483,31 @@ export default function Receive() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label>Location</Label>
-                      <Select 
-                        value={singleForm.location_id} 
-                        onValueChange={v => handleLocationSelect(v, setSingleForm)}
+                      <Label>Bin *</Label>
+                      <Select
+                        value={singleForm.location_bin}
+                        onValueChange={v => setSingleForm(p => ({ ...p, location_bin: v }))}
                       >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select location" />
-                        </SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder="1-9" /></SelectTrigger>
                         <SelectContent>
-                          {locations.map(l => (
-                            <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                          {Array.from({ length: 9 }, (_, i) => i + 1).map(bin => (
+                            <SelectItem key={bin} value={bin.toString()}>{bin}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Row *</Label>
+                      <Select
+                        value={singleForm.location_row}
+                        onValueChange={v => setSingleForm(p => ({ ...p, location_row: v }))}
+                      >
+                        <SelectTrigger><SelectValue placeholder="A-C" /></SelectTrigger>
+                        <SelectContent>
+                          {['A', 'B', 'C'].map(row => (
+                            <SelectItem key={row} value={row}>{row}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -461,23 +530,22 @@ export default function Receive() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Vendor</Label>
-                      <Input 
-                        value={singleForm.vendor}
-                        onChange={e => setSingleForm(p => ({ ...p, vendor: e.target.value }))}
-                        placeholder="Supplier name"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>PO #</Label>
-                      <Input 
-                        value={singleForm.purchase_order}
-                        onChange={e => setSingleForm(p => ({ ...p, purchase_order: e.target.value }))}
-                        placeholder="Purchase order"
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label>PO # (on manufacturer order form) *</Label>
+                    <Input 
+                      value={singleForm.purchase_order}
+                      onChange={e => setSingleForm(p => ({ ...p, purchase_order: e.target.value }))}
+                      placeholder="Purchase order number"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label>Manufacturer Roll Number (optional)</Label>
+                    <Input 
+                      value={singleForm.manufacturer_roll_number}
+                      onChange={e => setSingleForm(p => ({ ...p, manufacturer_roll_number: e.target.value }))}
+                      placeholder="If available from manufacturer"
+                    />
                   </div>
 
                   <div className="space-y-2">
@@ -511,17 +579,18 @@ export default function Receive() {
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Owner *</Label>
+                      <Label>Manufacturer *</Label>
                       <Select 
-                        value={rapidForm.inventory_owner} 
-                        onValueChange={v => setRapidForm(p => ({ ...p, inventory_owner: v }))}
+                        value={rapidForm.manufacturer_id}
+                        onValueChange={v => handleManufacturerSelect(v, setRapidForm)}
                       >
                         <SelectTrigger>
-                          <SelectValue />
+                          <SelectValue placeholder="Select manufacturer" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="TexasTurf">TexasTurf</SelectItem>
-                          <SelectItem value="TurfCasa">TurfCasa</SelectItem>
+                          {manufacturers.map(m => (
+                            <SelectItem key={m.id} value={m.id}>{m.vendor_name}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -530,12 +599,14 @@ export default function Receive() {
                       <Select 
                         value={rapidForm.product_id} 
                         onValueChange={v => handleProductSelect(v, setRapidForm)}
+                        disabled={!rapidForm.manufacturer_id}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Select product" />
                         </SelectTrigger>
                         <SelectContent>
-                          {products.map(p => (
+                          {products.filter(p => !rapidForm.width_ft || p.width_options?.includes(parseFloat(rapidForm.width_ft)))
+                                    .map(p => (
                             <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -553,21 +624,15 @@ export default function Receive() {
                     </div>
                     <div className="space-y-2">
                       <Label>Width (ft) *</Label>
-                      <Select 
-                        value={rapidForm.width_ft} 
-                        onValueChange={v => setRapidForm(p => ({ ...p, width_ft: v }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="13">13 ft</SelectItem>
-                          <SelectItem value="15">15 ft</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Input 
+                        type="number"
+                        value={rapidForm.width_ft}
+                        disabled
+                        placeholder="Auto-set"
+                      />
                     </div>
                     <div className="space-y-2">
-                      <Label>Length (ft)</Label>
+                      <Label>Length (ft) *</Label>
                       <Input 
                         type="number"
                         value={rapidForm.length_ft}
@@ -587,35 +652,50 @@ export default function Receive() {
 
                   <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label>Location</Label>
-                      <Select 
-                        value={rapidForm.location_id} 
-                        onValueChange={v => handleLocationSelect(v, setRapidForm)}
+                      <Label>Bin *</Label>
+                      <Select
+                        value={rapidForm.location_bin}
+                        onValueChange={v => setRapidForm(p => ({ ...p, location_bin: v }))}
                       >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select location" />
-                        </SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder="1-9" /></SelectTrigger>
                         <SelectContent>
-                          {locations.map(l => (
-                            <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                          {Array.from({ length: 9 }, (_, i) => i + 1).map(bin => (
+                            <SelectItem key={bin} value={bin.toString()}>{bin}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Vendor</Label>
-                      <Input 
-                        value={rapidForm.vendor}
-                        onChange={e => setRapidForm(p => ({ ...p, vendor: e.target.value }))}
-                      />
+                      <Label>Row *</Label>
+                      <Select
+                        value={rapidForm.location_row}
+                        onValueChange={v => setRapidForm(p => ({ ...p, location_row: v }))}
+                      >
+                        <SelectTrigger><SelectValue placeholder="A-C" /></SelectTrigger>
+                        <SelectContent>
+                          {['A', 'B', 'C'].map(row => (
+                            <SelectItem key={row} value={row}>{row}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>PO #</Label>
+                      <Label>PO # *</Label>
                       <Input 
                         value={rapidForm.purchase_order}
                         onChange={e => setRapidForm(p => ({ ...p, purchase_order: e.target.value }))}
+                        placeholder="PO number"
                       />
                     </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label>Manufacturer Roll Number (optional)</Label>
+                    <Input 
+                      value={rapidForm.manufacturer_roll_number}
+                      onChange={e => setRapidForm(p => ({ ...p, manufacturer_roll_number: e.target.value }))}
+                      placeholder="If available from manufacturer"
+                    />
                   </div>
 
                   <Button 
@@ -635,7 +715,7 @@ export default function Receive() {
                 <CardHeader>
                   <CardTitle>CSV Upload</CardTitle>
                   <CardDescription>
-                    Upload a CSV with columns: inventory_owner, product_name, dye_lot, width_ft, length_ft, quantity, vendor, po, location
+                    Upload a CSV with columns: manufacturer_name, product_name, dye_lot, width_ft, length_ft, quantity, po, location_bin, location_row, manufacturer_roll_number
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -708,10 +788,11 @@ export default function Receive() {
                       key={roll.id}
                       className="p-3 bg-emerald-50 rounded-lg border border-emerald-100"
                     >
-                      <p className="font-mono font-medium text-emerald-800">{roll.roll_tag}</p>
+                      <p className="font-mono font-medium text-emerald-800">{roll.tt_sku_tag_number}</p>
                       <p className="text-sm text-emerald-600">
                         {roll.product_name} • {roll.width_ft}ft × {roll.current_length_ft}ft
                       </p>
+                      <p className="text-xs text-emerald-500 mt-1">Location: {roll.location_bin}{roll.location_row}</p>
                     </div>
                   ))}
                 </div>
