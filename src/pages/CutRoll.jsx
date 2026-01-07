@@ -53,6 +53,7 @@ export default function CutRoll() {
   const [cutLength, setCutLength] = useState('');
   const [destination, setDestination] = useState('inventory');
   const [selectedJobId, setSelectedJobId] = useState('');
+  const [newTTSku, setNewTTSku] = useState('');
   const [isCutting, setIsCutting] = useState(false);
   const [createdChild, setCreatedChild] = useState(null);
 
@@ -112,16 +113,24 @@ export default function CutRoll() {
       return;
     }
 
+    if (destination === 'inventory' && !newTTSku) {
+      toast.error('Please enter a TT SKU # for the new roll');
+      return;
+    }
+
     setIsCutting(true);
 
     const childTag = generateRollTag();
     const childSku = generateCustomSku(selectedRoll.inventory_owner, selectedRoll.product_name);
     const newParentLength = selectedRoll.current_length_ft - cutLengthNum;
 
+    // Determine TT SKU # based on destination
+    const ttSkuNumber = destination === 'inventory' ? newTTSku : childTag;
+
     // Create child roll
     const childData = {
       roll_tag: childTag,
-      tt_sku_tag_number: childTag,
+      tt_sku_tag_number: ttSkuNumber,
       custom_roll_sku: childSku,
       inventory_owner: selectedRoll.inventory_owner,
       product_id: selectedRoll.product_id,
@@ -203,8 +212,9 @@ export default function CutRoll() {
     setCreatedChild({ ...childData, id: childRoll.id });
     setSelectedRoll({ ...selectedRoll, current_length_ft: newParentLength, status: parentStatus });
     setCutLength('');
+    setNewTTSku('');
     setIsCutting(false);
-    toast.success(`Created child roll ${childTag}`);
+    toast.success(`Created child roll ${ttSkuNumber}`);
   };
 
   return (
@@ -313,6 +323,19 @@ export default function CutRoll() {
               </Select>
             </div>
 
+            {destination === 'inventory' && (
+              <div className="space-y-2">
+                <Label>New TT SKU # *</Label>
+                <Input
+                  value={newTTSku}
+                  onChange={(e) => setNewTTSku(e.target.value)}
+                  placeholder="Enter TT SKU # for new roll"
+                  className="font-mono"
+                />
+                <p className="text-xs text-slate-500">Enter the pre-printed TT SKU tag number</p>
+              </div>
+            )}
+
             {destination === 'job' && (
               <div className="space-y-2">
                 <Label>Select Job</Label>
@@ -333,7 +356,13 @@ export default function CutRoll() {
 
             <Button
               onClick={handleCut}
-              disabled={!selectedRoll || !cutLength || isCutting || parseFloat(cutLength) > selectedRoll?.current_length_ft}
+              disabled={
+                !selectedRoll || 
+                !cutLength || 
+                isCutting || 
+                parseFloat(cutLength) > selectedRoll?.current_length_ft ||
+                (destination === 'inventory' && !newTTSku)
+              }
               className="w-full h-12 bg-emerald-600 hover:bg-emerald-700"
             >
               <Scissors className="h-5 w-5 mr-2" />
@@ -378,6 +407,7 @@ export default function CutRoll() {
                 onClick={() => {
                   setCreatedChild(null);
                   setCutLength('');
+                  setNewTTSku('');
                 }}
                 className="flex-1 bg-emerald-600 hover:bg-emerald-700"
               >

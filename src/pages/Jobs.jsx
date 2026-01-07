@@ -122,11 +122,11 @@ export default function Jobs() {
               </DialogHeader>
               <div className="space-y-4 pt-4">
                 <div className="space-y-2">
-                  <Label>Job Number *</Label>
+                  <Label>Job Number (Jobber) *</Label>
                   <Input 
                     value={newJob.job_number}
                     onChange={e => setNewJob(p => ({ ...p, job_number: e.target.value }))}
-                    placeholder="Enter job number"
+                    placeholder="Enter job number from Jobber"
                   />
                 </div>
 
@@ -144,6 +144,24 @@ export default function Jobs() {
                       <SelectItem value="TurfCasa">TurfCasa Retail</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Customer Name</Label>
+                  <Input 
+                    value={newJob.customer_name}
+                    onChange={e => setNewJob(p => ({ ...p, customer_name: e.target.value }))}
+                    placeholder="Optional"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Notes</Label>
+                  <Input 
+                    value={newJob.notes}
+                    onChange={e => setNewJob(p => ({ ...p, notes: e.target.value }))}
+                    placeholder="Optional"
+                  />
                 </div>
 
                 <Button 
@@ -206,7 +224,11 @@ export default function Jobs() {
                   </TableRow>
                 ) : (
                   filteredJobs.map((job) => (
-                    <TableRow key={job.id} className="hover:bg-slate-50 transition-colors">
+                    <TableRow 
+                      key={job.id} 
+                      className="hover:bg-slate-50 transition-colors cursor-pointer"
+                      onClick={() => window.location.href = createPageUrl(`JobDetail?id=${job.id}`)}
+                    >
                       <TableCell className="font-medium">{job.job_number}</TableCell>
                       <TableCell>
                         <OwnerBadge owner={job.fulfillment_for} size="sm" />
@@ -216,7 +238,7 @@ export default function Jobs() {
                       <TableCell className="text-slate-500">
                         {format(new Date(job.created_date), 'MMM d')}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <Link to={createPageUrl(`JobDetail?id=${job.id}`)}>
                           <Button variant="ghost" size="sm">
                             <Eye className="h-4 w-4 mr-1" />
