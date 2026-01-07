@@ -51,7 +51,7 @@ export default function Jobs() {
   
   const [newJob, setNewJob] = useState({
     job_number: '',
-    inventory_owner: 'TexasTurf',
+    fulfillment_for: 'TexasTurf',
     customer_name: '',
     job_address: '',
     scheduled_date: '',
@@ -75,7 +75,7 @@ export default function Jobs() {
       setShowCreateDialog(false);
       setNewJob({
         job_number: '',
-        inventory_owner: 'TexasTurf',
+        fulfillment_for: 'TexasTurf',
         customer_name: '',
         job_address: '',
         scheduled_date: '',
@@ -86,7 +86,7 @@ export default function Jobs() {
   });
 
   const filteredJobs = jobs.filter(job => {
-    if (ownerFilter !== 'all' && job.inventory_owner !== ownerFilter) return false;
+    if (ownerFilter !== 'all' && job.fulfillment_for !== ownerFilter) return false;
     if (statusFilter !== 'all' && job.status !== statusFilter) return false;
     return true;
   });
@@ -131,17 +131,17 @@ export default function Jobs() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Company *</Label>
+                  <Label>Fulfillment For *</Label>
                   <Select 
-                    value={newJob.inventory_owner} 
-                    onValueChange={v => setNewJob(p => ({ ...p, inventory_owner: v }))}
+                    value={newJob.fulfillment_for} 
+                    onValueChange={v => setNewJob(p => ({ ...p, fulfillment_for: v }))}
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="TexasTurf">TexasTurf</SelectItem>
-                      <SelectItem value="TurfCasa">TurfCasa</SelectItem>
+                      <SelectItem value="TexasTurf">TexasTurf Install</SelectItem>
+                      <SelectItem value="TurfCasa">TurfCasa Retail</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -168,10 +168,10 @@ export default function Jobs() {
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="Draft">Draft</SelectItem>
-            <SelectItem value="Allocated">Allocated</SelectItem>
-            <SelectItem value="Picking">Picking</SelectItem>
-            <SelectItem value="Shipped">Shipped</SelectItem>
-            <SelectItem value="Closed">Closed</SelectItem>
+            <SelectItem value="Fulfilling">Fulfilling</SelectItem>
+            <SelectItem value="SentOut">Sent Out</SelectItem>
+            <SelectItem value="AwaitingReturnInventory">Awaiting Return</SelectItem>
+            <SelectItem value="Completed">Completed</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -209,7 +209,7 @@ export default function Jobs() {
                     <TableRow key={job.id} className="hover:bg-slate-50 transition-colors">
                       <TableCell className="font-medium">{job.job_number}</TableCell>
                       <TableCell>
-                        <OwnerBadge owner={job.inventory_owner} size="sm" />
+                        <OwnerBadge owner={job.fulfillment_for} size="sm" />
                       </TableCell>
                       <TableCell className="text-slate-600">{job.customer_name || '-'}</TableCell>
                       <TableCell><StatusBadge status={job.status} size="sm" /></TableCell>

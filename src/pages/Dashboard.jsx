@@ -194,35 +194,33 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Condition Distribution */}
+        {/* Shipped Out Tracking */}
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Inventory by Condition</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Shipped Out by Product (Sq Ft)</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={Object.entries(
-                    filteredRolls.reduce((acc, r) => {
-                      acc[r.condition] = (acc[r.condition] || 0) + 1;
+              <BarChart 
+                data={Object.entries(
+                  transactions
+                    .filter(t => t.transaction_type === 'SendOutToJob' && t.fulfillment_for === 'TexasTurf')
+                    .reduce((acc, t) => {
+                      const product = t.product_name || 'Unknown';
+                      const sqft = (t.length_change_ft || 0) * (t.width_ft || 0);
+                      acc[product] = (acc[product] || 0) + Math.abs(sqft);
                       return acc;
                     }, {})
-                  ).map(([name, value]) => ({ name, value }))}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={2}
-                  dataKey="value"
-                  label={({ name, value }) => `${name}: ${value}`}
-                  labelLine={false}
-                >
-                  {[0, 1, 2, 3, 4].map((index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
+                ).map(([name, value]) => ({ name, value: Math.round(value) }))
+                  .sort((a, b) => b.value - a.value)
+                  .slice(0, 8)
+                } 
+                layout="vertical"
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis type="number" tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
+                <Tooltip formatter={(value) => `${value.toLocaleString()} sq ft`} />
+                <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>

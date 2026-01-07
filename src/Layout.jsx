@@ -36,13 +36,14 @@ const navItems = [
   { name: 'Inventory', page: 'Inventory', icon: Package },
   { name: 'Receive', page: 'Receive', icon: FileSpreadsheet },
   { name: 'Cut Roll', page: 'CutRoll', icon: Scissors },
-  { name: 'Bundles', page: 'Bundles', icon: FileBox },
   { name: 'Jobs', page: 'Jobs', icon: ClipboardList },
   { name: 'Returns', page: 'Returns', icon: RotateCcw },
 ];
 
 const adminItems = [
   { name: 'Products', page: 'Products', icon: Package },
+  { name: 'Accessories', page: 'Accessories', icon: Package },
+  { name: 'Materials', page: 'Materials', icon: Package },
   { name: 'Locations', page: 'Locations', icon: MapPin },
   { name: 'Transactions', page: 'Transactions', icon: FileSpreadsheet },
   { name: 'Settings', page: 'Settings', icon: Settings },

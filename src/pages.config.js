@@ -12,6 +12,8 @@ import Transactions from './pages/Transactions';
 import Settings from './pages/Settings';
 import Help from './pages/Help';
 import Reports from './pages/Reports';
+import Accessories from './pages/Accessories';
+import Materials from './pages/Materials';
 import __Layout from './Layout.jsx';
 
 
@@ -30,6 +32,8 @@ export const PAGES = {
     "Settings": Settings,
     "Help": Help,
     "Reports": Reports,
+    "Accessories": Accessories,
+    "Materials": Materials,
 }
 
 export const pagesConfig = {
