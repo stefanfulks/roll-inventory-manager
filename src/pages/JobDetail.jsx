@@ -74,10 +74,12 @@ export default function JobDetail() {
     queryFn: () => base44.entities.Product.filter({ status: 'active' }),
   });
 
-  const { data: rolls = [] } = useQuery({
+  const { data: allRolls = [] } = useQuery({
     queryKey: ['rolls'],
-    queryFn: () => base44.entities.Roll.filter({ status: 'Available' }),
+    queryFn: () => base44.entities.Roll.list(),
   });
+
+  const rolls = allRolls.filter(r => r.status === 'Available');
 
   const { data: accessories = [] } = useQuery({
     queryKey: ['accessories'],
@@ -176,13 +178,17 @@ export default function JobDetail() {
       
       for (const returnItem of returns) {
         if (returnItem.type === 'roll') {
-          const roll = rolls.find(r => r.id === returnItem.id);
+          const roll = allRolls.find(r => r.id === returnItem.id);
           if (roll) {
-            // Update roll status and length
+            const finalStatus = returnItem.condition === 'Scrapped' ? 'Scrapped' : 'Available';
+            const finalTTSKU = returnItem.has_existing_tag === 'new' ? returnItem.new_tt_sku : (roll.tt_sku_tag_number || roll.roll_tag);
+            
+            // Update roll status, length, and tag
             await base44.entities.Roll.update(returnItem.id, {
-              status: 'Available',
+              status: finalStatus,
               current_length_ft: returnItem.returned_length_ft,
-              tt_sku_tag_number: returnItem.new_tt_sku || roll.tt_sku_tag_number
+              tt_sku_tag_number: finalTTSKU,
+              condition: returnItem.condition || 'Good'
             });
             
             // Create transaction
@@ -190,7 +196,7 @@ export default function JobDetail() {
               transaction_type: 'ReturnFromJob',
               fulfillment_for: job.fulfillment_for,
               roll_id: returnItem.id,
-              tt_sku_tag_number: returnItem.new_tt_sku || roll.tt_sku_tag_number,
+              tt_sku_tag_number: finalTTSKU,
               job_id: jobId,
               job_number: job.job_number,
               product_name: roll.product_name,
@@ -200,7 +206,7 @@ export default function JobDetail() {
               length_before_ft: 0,
               length_after_ft: returnItem.returned_length_ft,
               performed_by: user.email,
-              notes: `Returned from job ${job.job_number}`
+              notes: `Returned from job ${job.job_number} - Condition: ${returnItem.condition || 'Good'}${returnItem.has_existing_tag === 'new' ? ' - New tag assigned' : ''}`
             });
           }
         }
@@ -212,6 +218,8 @@ export default function JobDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      queryClient.invalidateQueries({ queryKey: ['returnTransactions', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
       setShowReceiveReturns(false);
       setReturnItems([]);
       toast.success('Returns processed successfully');
@@ -233,7 +241,7 @@ export default function JobDetail() {
             await base44.entities.Roll.update(rollId, { status: 'SentOut' });
             
             // Create transaction
-            const roll = rolls.find(r => r.id === rollId);
+            const roll = allRolls.find(r => r.id === rollId);
             if (roll) {
               await base44.entities.Transaction.create({
                 transaction_type: 'SendOutToJob',
@@ -693,81 +701,142 @@ export default function JobDetail() {
             </p>
             
             <div className="border rounded-lg max-h-96 overflow-y-auto">
-              {turfAllocations.filter(a => a.status === 'Fulfilled').map(allocation => {
-                const rollIds = allocation.allocated_roll_ids || [];
-                return rollIds.map(rollId => {
-                  const roll = rolls.find(r => r.id === rollId);
-                  if (!roll) return null;
-                  
-                  const returnItem = returnItems.find(r => r.id === rollId);
-                  
-                  return (
-                    <div key={rollId} className="p-4 border-b last:border-b-0">
-                      <div className="flex items-start gap-3">
-                        <input
-                          type="checkbox"
-                          checked={!!returnItem}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setReturnItems(prev => [...prev, {
-                                id: rollId,
-                                type: 'roll',
-                                returned_length_ft: 0,
-                                new_tt_sku: ''
-                              }]);
-                            } else {
-                              setReturnItems(prev => prev.filter(r => r.id !== rollId));
-                            }
-                          }}
-                          className="mt-1"
-                        />
-                        <div className="flex-1">
-                          <p className="font-medium">{roll.tt_sku_tag_number || roll.roll_tag}</p>
-                          <p className="text-sm text-slate-600">
-                            {roll.product_name} • {roll.width_ft}ft • Dye Lot: {roll.dye_lot}
-                          </p>
-                          
-                          {returnItem && (
-                            <div className="mt-3 space-y-2">
-                              <div>
-                                <Label className="text-xs">Returned Length (ft)</Label>
-                                <Input
-                                  type="number"
-                                  value={returnItem.returned_length_ft}
-                                  onChange={(e) => {
-                                    setReturnItems(prev => prev.map(r => 
-                                      r.id === rollId 
-                                        ? { ...r, returned_length_ft: parseFloat(e.target.value) || 0 }
-                                        : r
-                                    ));
-                                  }}
-                                  placeholder="0"
-                                  className="mt-1"
-                                />
+              {turfAllocations.filter(a => a.status === 'Fulfilled').length === 0 ? (
+                <div className="p-8 text-center text-slate-500">
+                  No rolls were sent out for this job
+                </div>
+              ) : (
+                turfAllocations.filter(a => a.status === 'Fulfilled').map(allocation => {
+                  const rollIds = allocation.allocated_roll_ids || [];
+                  return rollIds.map(rollId => {
+                    const roll = allRolls.find(r => r.id === rollId);
+                    if (!roll) return null;
+                    
+                    const returnItem = returnItems.find(r => r.id === rollId);
+                    
+                    return (
+                      <div key={rollId} className="p-4 border-b last:border-b-0">
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={!!returnItem}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setReturnItems(prev => [...prev, {
+                                  id: rollId,
+                                  type: 'roll',
+                                  returned_length_ft: roll.current_length_ft || 0,
+                                  has_existing_tag: 'existing',
+                                  new_tt_sku: '',
+                                  condition: 'Good'
+                                }]);
+                              } else {
+                                setReturnItems(prev => prev.filter(r => r.id !== rollId));
+                              }
+                            }}
+                            className="mt-1"
+                          />
+                          <div className="flex-1">
+                            <p className="font-medium">{roll.tt_sku_tag_number || roll.roll_tag || 'No tag'}</p>
+                            <p className="text-sm text-slate-600">
+                              {roll.product_name} • {roll.width_ft}ft × {roll.current_length_ft}ft • Dye Lot: {roll.dye_lot}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">
+                              Sent out: {roll.current_length_ft}ft • Type: {roll.roll_type}
+                            </p>
+                            
+                            {returnItem && (
+                              <div className="mt-3 space-y-3 p-3 bg-slate-50 rounded-lg">
+                                <div>
+                                  <Label className="text-xs font-semibold">Returned Length (ft) *</Label>
+                                  <Input
+                                    type="number"
+                                    step="0.1"
+                                    value={returnItem.returned_length_ft}
+                                    onChange={(e) => {
+                                      setReturnItems(prev => prev.map(r => 
+                                        r.id === rollId 
+                                          ? { ...r, returned_length_ft: parseFloat(e.target.value) || 0 }
+                                          : r
+                                      ));
+                                    }}
+                                    placeholder="0"
+                                    className="mt-1"
+                                  />
+                                </div>
+                                
+                                <div>
+                                  <Label className="text-xs font-semibold">Does this roll have a tag? *</Label>
+                                  <Select
+                                    value={returnItem.has_existing_tag}
+                                    onValueChange={(v) => {
+                                      setReturnItems(prev => prev.map(r => 
+                                        r.id === rollId 
+                                          ? { ...r, has_existing_tag: v }
+                                          : r
+                                      ));
+                                    }}
+                                  >
+                                    <SelectTrigger className="mt-1">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="existing">Yes - Use existing tag</SelectItem>
+                                      <SelectItem value="new">No - Assign new TT SKU tag</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                
+                                {returnItem.has_existing_tag === 'new' && (
+                                  <div>
+                                    <Label className="text-xs font-semibold">New TT SKU Tag Number *</Label>
+                                    <Input
+                                      value={returnItem.new_tt_sku}
+                                      onChange={(e) => {
+                                        setReturnItems(prev => prev.map(r => 
+                                          r.id === rollId 
+                                            ? { ...r, new_tt_sku: e.target.value }
+                                            : r
+                                        ));
+                                      }}
+                                      placeholder="Enter new tag number"
+                                      className="mt-1 font-mono"
+                                    />
+                                  </div>
+                                )}
+                                
+                                <div>
+                                  <Label className="text-xs font-semibold">Condition *</Label>
+                                  <Select
+                                    value={returnItem.condition}
+                                    onValueChange={(v) => {
+                                      setReturnItems(prev => prev.map(r => 
+                                        r.id === rollId 
+                                          ? { ...r, condition: v }
+                                          : r
+                                      ));
+                                    }}
+                                  >
+                                    <SelectTrigger className="mt-1">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="Good">Good - Add back to inventory</SelectItem>
+                                      <SelectItem value="Used">Used - Add back to inventory</SelectItem>
+                                      <SelectItem value="Damaged">Damaged - Add back to inventory</SelectItem>
+                                      <SelectItem value="Scrapped">Scrapped - Do not add to inventory</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
                               </div>
-                              <div>
-                                <Label className="text-xs">New TT SKU # (optional)</Label>
-                                <Input
-                                  value={returnItem.new_tt_sku}
-                                  onChange={(e) => {
-                                    setReturnItems(prev => prev.map(r => 
-                                      r.id === rollId 
-                                        ? { ...r, new_tt_sku: e.target.value }
-                                        : r
-                                    ));
-                                  }}
-                                  placeholder="Leave blank to keep existing"
-                                  className="mt-1 font-mono"
-                                />
-                              </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                });
-              })}
+                    );
+                  });
+                })
+              )}
             </div>
 
             <div className="flex gap-2">
