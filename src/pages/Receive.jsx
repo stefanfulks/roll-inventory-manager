@@ -44,6 +44,7 @@ export default function Receive() {
   
   // Single receive state
   const [singleForm, setSingleForm] = useState({
+    tt_sku_tag_number: '',
     product_id: '',
     product_name: '',
     manufacturer_id: '',
@@ -52,8 +53,7 @@ export default function Receive() {
     dye_lot: '',
     width_ft: '',
     length_ft: '100',
-    location_bin: '',
-    location_row: '',
+    location: '',
     purchase_order: '',
     condition: 'New',
     notes: ''
@@ -117,7 +117,7 @@ export default function Receive() {
   });
 
   const handleSingleReceive = async () => {
-    const requiredFields = ['manufacturer_id', 'product_id', 'dye_lot', 'width_ft', 'length_ft', 'location_bin', 'location_row', 'purchase_order'];
+    const requiredFields = ['tt_sku_tag_number', 'manufacturer_id', 'manufacturer_roll_number', 'product_id', 'dye_lot', 'width_ft', 'length_ft', 'location', 'purchase_order'];
     for (const field of requiredFields) {
       if (!singleForm[field]) {
         toast.error(`Please fill in all required fields`);
@@ -126,11 +126,13 @@ export default function Receive() {
     }
 
     setIsCreating(true);
-    const tt_sku_tag_number = generateTTSKUTagNumber();
+    
+    // Parse location (e.g., "1-A" -> bin: "1", row: "A")
+    const [location_bin, location_row] = singleForm.location.split('-');
 
     const rollData = {
-      tt_sku_tag_number: tt_sku_tag_number,
-      manufacturer_roll_number: singleForm.manufacturer_roll_number || tt_sku_tag_number,
+      tt_sku_tag_number: singleForm.tt_sku_tag_number,
+      manufacturer_roll_number: singleForm.manufacturer_roll_number,
       vendor_id: singleForm.manufacturer_id,
       vendor_name: singleForm.manufacturer_name,
       product_id: singleForm.product_id,
@@ -141,8 +143,8 @@ export default function Receive() {
       current_length_ft: parseFloat(singleForm.length_ft),
       roll_type: 'Parent',
       condition: singleForm.condition,
-      location_bin: singleForm.location_bin,
-      location_row: singleForm.location_row,
+      location_bin,
+      location_row,
       status: 'Available',
       date_received: new Date().toISOString().split('T')[0],
       purchase_order: singleForm.purchase_order,
@@ -152,18 +154,18 @@ export default function Receive() {
     const roll = await createRollMutation.mutateAsync(rollData);
     setCreatedRolls([roll]);
     setIsCreating(false);
-    toast.success(`Roll ${tt_sku_tag_number} received successfully!`);
+    toast.success(`Roll ${singleForm.tt_sku_tag_number} received successfully!`);
     
     // Reset form but keep manufacturer
     setSingleForm(prev => ({
       ...prev,
+      tt_sku_tag_number: '',
       product_id: '',
       product_name: '',
       manufacturer_roll_number: '',
       dye_lot: '',
       length_ft: '100',
-      location_bin: '',
-      location_row: '',
+      location: '',
       purchase_order: '',
       notes: ''
     }));
@@ -409,6 +411,16 @@ export default function Receive() {
                   <CardDescription>Add one roll to inventory</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>TT SKU Tag Number *</Label>
+                    <Input 
+                      value={singleForm.tt_sku_tag_number}
+                      onChange={e => setSingleForm(p => ({ ...p, tt_sku_tag_number: e.target.value }))}
+                      placeholder="Enter pre-printed SKU tag number"
+                      className="font-mono"
+                    />
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Manufacturer *</Label>
@@ -446,6 +458,15 @@ export default function Receive() {
                     </div>
                   </div>
 
+                  <div className="space-y-2">
+                    <Label>Manufacturer Roll Number *</Label>
+                    <Input 
+                      value={singleForm.manufacturer_roll_number}
+                      onChange={e => setSingleForm(p => ({ ...p, manufacturer_roll_number: e.target.value }))}
+                      placeholder="From manufacturer's roll tag"
+                    />
+                  </div>
+
                   <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <Label>Dye Lot *</Label>
@@ -474,32 +495,22 @@ export default function Receive() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Bin *</Label>
+                      <Label>Location (Bin-Row) *</Label>
                       <Select
-                        value={singleForm.location_bin}
-                        onValueChange={v => setSingleForm(p => ({ ...p, location_bin: v }))}
+                        value={singleForm.location}
+                        onValueChange={v => setSingleForm(p => ({ ...p, location: v }))}
                       >
-                        <SelectTrigger><SelectValue placeholder="1-9" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
                         <SelectContent>
-                          {Array.from({ length: 9 }, (_, i) => i + 1).map(bin => (
-                            <SelectItem key={bin} value={bin.toString()}>{bin}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Row *</Label>
-                      <Select
-                        value={singleForm.location_row}
-                        onValueChange={v => setSingleForm(p => ({ ...p, location_row: v }))}
-                      >
-                        <SelectTrigger><SelectValue placeholder="A-C" /></SelectTrigger>
-                        <SelectContent>
-                          {['A', 'B', 'C'].map(row => (
-                            <SelectItem key={row} value={row}>{row}</SelectItem>
-                          ))}
+                          {Array.from({ length: 9 }, (_, i) => i + 1).flatMap(bin =>
+                            ['A', 'B', 'C'].map(row => (
+                              <SelectItem key={`${bin}-${row}`} value={`${bin}-${row}`}>
+                                {bin}-{row}
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                     </div>
@@ -527,15 +538,6 @@ export default function Receive() {
                       value={singleForm.purchase_order}
                       onChange={e => setSingleForm(p => ({ ...p, purchase_order: e.target.value }))}
                       placeholder="Purchase order number"
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label>Manufacturer Roll Number (optional)</Label>
-                    <Input 
-                      value={singleForm.manufacturer_roll_number}
-                      onChange={e => setSingleForm(p => ({ ...p, manufacturer_roll_number: e.target.value }))}
-                      placeholder="If available from manufacturer"
                     />
                   </div>
 
