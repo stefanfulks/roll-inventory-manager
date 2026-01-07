@@ -121,6 +121,7 @@ export default function CutRoll() {
     // Create child roll
     const childData = {
       roll_tag: childTag,
+      tt_sku_tag_number: childTag,
       custom_roll_sku: childSku,
       inventory_owner: selectedRoll.inventory_owner,
       product_id: selectedRoll.product_id,
