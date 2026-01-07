@@ -1,5 +1,3 @@
-import BundleDetail from './pages/BundleDetail';
-import Bundles from './pages/Bundles';
 import CutRoll from './pages/CutRoll';
 import Dashboard from './pages/Dashboard';
 import Inventory from './pages/Inventory';
@@ -18,8 +16,6 @@ import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
-    "BundleDetail": BundleDetail,
-    "Bundles": Bundles,
     "CutRoll": CutRoll,
     "Dashboard": Dashboard,
     "Inventory": Inventory,
