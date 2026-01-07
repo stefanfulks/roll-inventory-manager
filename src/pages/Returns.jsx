@@ -3,8 +3,8 @@ import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   RotateCcw, 
-  Check,
-  Search
+  Search,
+  Check
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,55 +23,38 @@ import RollSearch from '@/components/inventory/RollSearch';
 import StatusBadge from '@/components/ui/StatusBadge';
 import OwnerBadge from '@/components/ui/OwnerBadge';
 
-function generateRollTag() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = 'RT-';
-  for (let i = 0; i < 8; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
 export default function Returns() {
   const queryClient = useQueryClient();
-  
-  const [returnType, setReturnType] = useState('tagged'); // tagged or untagged
+  const [returnType, setReturnType] = useState('existing');
   const [selectedRoll, setSelectedRoll] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processedReturn, setProcessedReturn] = useState(null);
   
-  // For tagged returns
-  const [taggedForm, setTaggedForm] = useState({
-    return_length: '',
+  const [returnForm, setReturnForm] = useState({
+    job_id: '',
     condition: 'Good',
     location_id: '',
     location_name: '',
-    status: 'Available',
-    notes: ''
+    notes: '',
+    final_status: 'Available'
   });
 
-  // For untagged returns
-  const [untaggedForm, setUntaggedForm] = useState({
+  // For new roll returns
+  const [newRollForm, setNewRollForm] = useState({
     inventory_owner: 'TexasTurf',
     product_name: '',
     dye_lot: '',
     width_ft: '',
     length_ft: '',
-    condition: 'Good',
+    condition: 'Used',
     location_id: '',
     location_name: '',
-    status: 'Available',
+    job_id: '',
     notes: ''
   });
 
-  const { data: rolls = [] } = useQuery({
-    queryKey: ['shipped-rolls'],
-    queryFn: () => base44.entities.Roll.filter({ status: 'Shipped' }, '-created_date', 500),
-  });
-
-  const { data: products = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => base44.entities.Product.filter({ status: 'active' }),
+  const { data: jobs = [] } = useQuery({
+    queryKey: ['jobs-for-returns'],
+    queryFn: () => base44.entities.Job.list('-created_date', 100),
   });
 
   const { data: locations = [] } = useQuery({
@@ -79,154 +62,139 @@ export default function Returns() {
     queryFn: () => base44.entities.Location.list(),
   });
 
-  const { data: jobs = [] } = useQuery({
-    queryKey: ['jobs'],
-    queryFn: () => base44.entities.Job.list('-created_date', 100),
+  const { data: shippedRolls = [] } = useQuery({
+    queryKey: ['shipped-rolls'],
+    queryFn: () => base44.entities.Roll.filter({ status: 'Shipped' }, '-created_date', 500),
   });
 
   const handleSearchRoll = (searchTerm) => {
-    // Search in shipped rolls first, then all rolls
-    let found = rolls.find(r => 
+    const found = shippedRolls.find(r => 
       r.roll_tag?.toLowerCase() === searchTerm.toLowerCase() ||
       r.roll_tag?.toLowerCase().includes(searchTerm.toLowerCase())
     );
-    
     if (found) {
       setSelectedRoll(found);
-      setTaggedForm(prev => ({
-        ...prev,
-        return_length: found.current_length_ft?.toString() || ''
-      }));
-      setProcessedReturn(null);
     } else {
-      toast.error('Roll not found in shipped inventory');
+      toast.error('Roll not found or not shipped');
     }
   };
 
-  const handleTaggedReturn = async () => {
+  const handleReturnExisting = async () => {
     if (!selectedRoll) {
       toast.error('Please select a roll');
       return;
     }
 
-    const returnLength = parseFloat(taggedForm.return_length);
-    if (!returnLength || returnLength <= 0) {
-      toast.error('Please enter a valid return length');
-      return;
-    }
-
     setIsProcessing(true);
 
-    // Update roll
+    // Update roll status and location
     await base44.entities.Roll.update(selectedRoll.id, {
-      current_length_ft: returnLength,
-      condition: taggedForm.condition,
-      location_id: taggedForm.location_id || selectedRoll.location_id,
-      location_name: taggedForm.location_name || selectedRoll.location_name,
-      status: taggedForm.status
+      status: returnForm.final_status,
+      condition: returnForm.condition,
+      location_id: returnForm.location_id,
+      location_name: returnForm.location_name
     });
 
-    // Create transaction
+    // Create return transaction
     await base44.entities.Transaction.create({
       transaction_type: 'Return',
       inventory_owner: selectedRoll.inventory_owner,
       roll_id: selectedRoll.id,
       roll_tag: selectedRoll.roll_tag,
-      length_change_ft: returnLength,
+      job_id: returnForm.job_id,
+      length_change_ft: selectedRoll.current_length_ft,
       length_before_ft: 0,
-      length_after_ft: returnLength,
+      length_after_ft: selectedRoll.current_length_ft,
       product_name: selectedRoll.product_name,
       dye_lot: selectedRoll.dye_lot,
       width_ft: selectedRoll.width_ft,
-      location_to: taggedForm.location_name,
-      notes: taggedForm.notes || `Returned with condition: ${taggedForm.condition}`
+      location_to: returnForm.location_name,
+      notes: `Returned - ${returnForm.condition} condition. ${returnForm.notes}`
     });
 
     queryClient.invalidateQueries({ queryKey: ['rolls'] });
     queryClient.invalidateQueries({ queryKey: ['shipped-rolls'] });
     queryClient.invalidateQueries({ queryKey: ['transactions'] });
 
-    setProcessedReturn({
-      ...selectedRoll,
-      current_length_ft: returnLength,
-      condition: taggedForm.condition,
-      status: taggedForm.status
-    });
+    setIsProcessing(false);
+    toast.success(`Roll ${selectedRoll.roll_tag} returned successfully`);
+    
     setSelectedRoll(null);
-    setTaggedForm({
-      return_length: '',
+    setReturnForm({
+      job_id: '',
       condition: 'Good',
       location_id: '',
       location_name: '',
-      status: 'Available',
-      notes: ''
+      notes: '',
+      final_status: 'Available'
     });
-    setIsProcessing(false);
-    toast.success('Return processed successfully');
   };
 
-  const handleUntaggedReturn = async () => {
-    if (!untaggedForm.product_name || !untaggedForm.dye_lot || !untaggedForm.width_ft || !untaggedForm.length_ft) {
+  const handleCreateNewReturn = async () => {
+    if (!newRollForm.product_name || !newRollForm.dye_lot || !newRollForm.width_ft || !newRollForm.length_ft) {
       toast.error('Please fill in all required fields');
       return;
     }
 
     setIsProcessing(true);
 
-    const rollTag = generateRollTag();
+    const rollTag = `R-RET-${Date.now().toString().slice(-6)}`;
+    const customSku = `${newRollForm.inventory_owner === 'TexasTurf' ? 'TT' : 'TC'}-RET-${Date.now().toString().slice(-4)}`;
+
     const rollData = {
       roll_tag: rollTag,
-      inventory_owner: untaggedForm.inventory_owner,
-      product_name: untaggedForm.product_name,
-      dye_lot: untaggedForm.dye_lot,
-      width_ft: parseFloat(untaggedForm.width_ft),
-      original_length_ft: parseFloat(untaggedForm.length_ft),
-      current_length_ft: parseFloat(untaggedForm.length_ft),
+      custom_roll_sku: customSku,
+      inventory_owner: newRollForm.inventory_owner,
+      product_name: newRollForm.product_name,
+      dye_lot: newRollForm.dye_lot,
+      width_ft: parseFloat(newRollForm.width_ft),
+      original_length_ft: parseFloat(newRollForm.length_ft),
+      current_length_ft: parseFloat(newRollForm.length_ft),
       roll_type: 'Child',
-      condition: untaggedForm.condition,
-      location_id: untaggedForm.location_id,
-      location_name: untaggedForm.location_name,
-      status: untaggedForm.status,
+      condition: newRollForm.condition,
+      location_id: newRollForm.location_id,
+      location_name: newRollForm.location_name,
+      status: newRollForm.condition === 'Damaged' || newRollForm.condition === 'Scrap' ? 'ReturnedHold' : 'Available',
       date_received: new Date().toISOString().split('T')[0],
-      notes: `Untagged return: ${untaggedForm.notes || 'No notes'}`
+      notes: `Untagged return - ${newRollForm.notes}`
     };
 
     const roll = await base44.entities.Roll.create(rollData);
 
-    // Create transaction
     await base44.entities.Transaction.create({
       transaction_type: 'Return',
-      inventory_owner: untaggedForm.inventory_owner,
+      inventory_owner: newRollForm.inventory_owner,
       roll_id: roll.id,
       roll_tag: rollTag,
-      length_change_ft: parseFloat(untaggedForm.length_ft),
+      job_id: newRollForm.job_id,
+      length_change_ft: parseFloat(newRollForm.length_ft),
       length_before_ft: 0,
-      length_after_ft: parseFloat(untaggedForm.length_ft),
-      product_name: untaggedForm.product_name,
-      dye_lot: untaggedForm.dye_lot,
-      width_ft: parseFloat(untaggedForm.width_ft),
-      location_to: untaggedForm.location_name,
-      notes: `Untagged return: ${untaggedForm.notes || 'No notes'}`
+      length_after_ft: parseFloat(newRollForm.length_ft),
+      product_name: newRollForm.product_name,
+      dye_lot: newRollForm.dye_lot,
+      width_ft: parseFloat(newRollForm.width_ft),
+      location_to: newRollForm.location_name,
+      notes: `Untagged return created - ${newRollForm.notes}`
     });
 
     queryClient.invalidateQueries({ queryKey: ['rolls'] });
     queryClient.invalidateQueries({ queryKey: ['transactions'] });
 
-    setProcessedReturn({ ...rollData, id: roll.id });
-    setUntaggedForm({
+    setIsProcessing(false);
+    toast.success(`Return created with tag ${rollTag}`);
+    
+    setNewRollForm({
       inventory_owner: 'TexasTurf',
       product_name: '',
       dye_lot: '',
       width_ft: '',
       length_ft: '',
-      condition: 'Good',
+      condition: 'Used',
       location_id: '',
       location_name: '',
-      status: 'Available',
+      job_id: '',
       notes: ''
     });
-    setIsProcessing(false);
-    toast.success(`Return created with tag ${rollTag}`);
   };
 
   const handleLocationSelect = (locationId, formSetter) => {
@@ -245,46 +213,40 @@ export default function Returns() {
       {/* Header */}
       <div>
         <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Returns</h1>
-        <p className="text-slate-500 mt-1">Process returned turf inventory</p>
+        <p className="text-slate-500 mt-1">Process returned turf rolls</p>
+      </div>
+
+      {/* Return Type Selector */}
+      <div className="flex gap-2">
+        <Button
+          variant={returnType === 'existing' ? 'default' : 'outline'}
+          onClick={() => setReturnType('existing')}
+          className={returnType === 'existing' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+        >
+          Return Tagged Roll
+        </Button>
+        <Button
+          variant={returnType === 'new' ? 'default' : 'outline'}
+          onClick={() => setReturnType('new')}
+          className={returnType === 'new' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+        >
+          Return Untagged Roll
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Return Type Selection */}
-        <Card className="rounded-2xl border-slate-100 shadow-sm lg:col-span-2">
-          <CardContent className="pt-6">
-            <div className="flex gap-4">
-              <Button
-                variant={returnType === 'tagged' ? 'default' : 'outline'}
-                onClick={() => setReturnType('tagged')}
-                className={returnType === 'tagged' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
-              >
-                <Search className="h-4 w-4 mr-2" />
-                Tagged Roll Return
-              </Button>
-              <Button
-                variant={returnType === 'untagged' ? 'default' : 'outline'}
-                onClick={() => setReturnType('untagged')}
-                className={returnType === 'untagged' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
-              >
-                <RotateCcw className="h-4 w-4 mr-2" />
-                Untagged Return
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Tagged Return */}
-        {returnType === 'tagged' && (
+        {returnType === 'existing' ? (
           <>
+            {/* Search Roll */}
             <Card className="rounded-2xl border-slate-100 shadow-sm">
               <CardHeader>
-                <CardTitle>Find Roll</CardTitle>
-                <CardDescription>Scan or search for the returning roll</CardDescription>
+                <CardTitle>1. Find Shipped Roll</CardTitle>
+                <CardDescription>Scan the roll tag to return</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <RollSearch 
                   onSearch={handleSearchRoll}
-                  placeholder="Scan roll tag..."
+                  placeholder="Scan shipped roll tag..."
                   autoFocus
                 />
 
@@ -307,8 +269,8 @@ export default function Returns() {
                         <p className="font-medium">{selectedRoll.width_ft} ft</p>
                       </div>
                       <div>
-                        <p className="text-slate-500">Type</p>
-                        <StatusBadge status={selectedRoll.roll_type} size="sm" />
+                        <p className="text-slate-500">Length</p>
+                        <p className="font-medium">{selectedRoll.current_length_ft} ft</p>
                       </div>
                     </div>
                   </div>
@@ -316,179 +278,44 @@ export default function Returns() {
               </CardContent>
             </Card>
 
+            {/* Return Details */}
             <Card className="rounded-2xl border-slate-100 shadow-sm">
               <CardHeader>
-                <CardTitle>Return Details</CardTitle>
+                <CardTitle>2. Return Details</CardTitle>
+                <CardDescription>Inspect and process the return</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Return Length (ft) *</Label>
-                  <Input
-                    type="number"
-                    value={taggedForm.return_length}
-                    onChange={e => setTaggedForm(p => ({ ...p, return_length: e.target.value }))}
-                    placeholder="Length being returned"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Condition</Label>
-                    <Select 
-                      value={taggedForm.condition} 
-                      onValueChange={v => setTaggedForm(p => ({ ...p, condition: v }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="New">New</SelectItem>
-                        <SelectItem value="Good">Good</SelectItem>
-                        <SelectItem value="Used">Used</SelectItem>
-                        <SelectItem value="Damaged">Damaged</SelectItem>
-                        <SelectItem value="Scrap">Scrap</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Status</Label>
-                    <Select 
-                      value={taggedForm.status} 
-                      onValueChange={v => setTaggedForm(p => ({ ...p, status: v }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Available">Available</SelectItem>
-                        <SelectItem value="ReturnedHold">Hold for Inspection</SelectItem>
-                        <SelectItem value="Scrapped">Scrapped</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Location</Label>
+                  <Label>Job (optional)</Label>
                   <Select 
-                    value={taggedForm.location_id} 
-                    onValueChange={v => handleLocationSelect(v, setTaggedForm)}
+                    value={returnForm.job_id} 
+                    onValueChange={v => setReturnForm(p => ({ ...p, job_id: v }))}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select location" />
+                      <SelectValue placeholder="Link to job" />
                     </SelectTrigger>
                     <SelectContent>
-                      {locations.map(l => (
-                        <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                      <SelectItem value={null}>No job</SelectItem>
+                      {jobs.map(j => (
+                        <SelectItem key={j.id} value={j.id}>
+                          {j.job_name} - {j.customer_name}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Notes</Label>
-                  <Textarea 
-                    value={taggedForm.notes}
-                    onChange={e => setTaggedForm(p => ({ ...p, notes: e.target.value }))}
-                    placeholder="Return notes..."
-                    rows={2}
-                  />
-                </div>
-
-                <Button
-                  onClick={handleTaggedReturn}
-                  disabled={!selectedRoll || isProcessing}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700"
-                >
-                  {isProcessing ? 'Processing...' : 'Process Return'}
-                </Button>
-              </CardContent>
-            </Card>
-          </>
-        )}
-
-        {/* Untagged Return */}
-        {returnType === 'untagged' && (
-          <Card className="rounded-2xl border-slate-100 shadow-sm lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Create Return Entry</CardTitle>
-              <CardDescription>Create a new inventory record for untagged returned material</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Owner *</Label>
+                  <Label>Condition *</Label>
                   <Select 
-                    value={untaggedForm.inventory_owner} 
-                    onValueChange={v => setUntaggedForm(p => ({ ...p, inventory_owner: v }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="TexasTurf">TexasTurf</SelectItem>
-                      <SelectItem value="TurfCasa">TurfCasa</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Product *</Label>
-                  <Select 
-                    value={untaggedForm.product_name} 
-                    onValueChange={v => setUntaggedForm(p => ({ ...p, product_name: v }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select product" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {products.map(p => (
-                        <SelectItem key={p.id} value={p.product_name}>{p.product_name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Dye Lot *</Label>
-                  <Input 
-                    value={untaggedForm.dye_lot}
-                    onChange={e => setUntaggedForm(p => ({ ...p, dye_lot: e.target.value }))}
-                    placeholder="Dye lot number"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Width (ft) *</Label>
-                  <Select 
-                    value={untaggedForm.width_ft} 
-                    onValueChange={v => setUntaggedForm(p => ({ ...p, width_ft: v }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="13">13 ft</SelectItem>
-                      <SelectItem value="15">15 ft</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Length (ft) *</Label>
-                  <Input 
-                    type="number"
-                    value={untaggedForm.length_ft}
-                    onChange={e => setUntaggedForm(p => ({ ...p, length_ft: e.target.value }))}
-                    placeholder="Length being returned"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Condition</Label>
-                  <Select 
-                    value={untaggedForm.condition} 
-                    onValueChange={v => setUntaggedForm(p => ({ ...p, condition: v }))}
+                    value={returnForm.condition} 
+                    onValueChange={v => {
+                      setReturnForm(p => ({ 
+                        ...p, 
+                        condition: v,
+                        final_status: ['Damaged', 'Scrap'].includes(v) ? 'ReturnedHold' : 'Available'
+                      }));
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -504,18 +331,18 @@ export default function Returns() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Status</Label>
+                  <Label>Final Status</Label>
                   <Select 
-                    value={untaggedForm.status} 
-                    onValueChange={v => setUntaggedForm(p => ({ ...p, status: v }))}
+                    value={returnForm.final_status} 
+                    onValueChange={v => setReturnForm(p => ({ ...p, final_status: v }))}
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Available">Available</SelectItem>
-                      <SelectItem value="ReturnedHold">Hold for Inspection</SelectItem>
-                      <SelectItem value="Scrapped">Scrapped</SelectItem>
+                      <SelectItem value="ReturnedHold">Returned (Hold for Inspection)</SelectItem>
+                      <SelectItem value="Scrapped">Scrap</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -523,8 +350,8 @@ export default function Returns() {
                 <div className="space-y-2">
                   <Label>Location</Label>
                   <Select 
-                    value={untaggedForm.location_id} 
-                    onValueChange={v => handleLocationSelect(v, setUntaggedForm)}
+                    value={returnForm.location_id} 
+                    onValueChange={v => handleLocationSelect(v, setReturnForm)}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select location" />
@@ -537,60 +364,179 @@ export default function Returns() {
                   </Select>
                 </div>
 
-                <div className="space-y-2 md:col-span-2">
+                <div className="space-y-2">
                   <Label>Notes</Label>
                   <Textarea 
-                    value={untaggedForm.notes}
-                    onChange={e => setUntaggedForm(p => ({ ...p, notes: e.target.value }))}
-                    placeholder="Return notes..."
+                    value={returnForm.notes}
+                    onChange={e => setReturnForm(p => ({ ...p, notes: e.target.value }))}
+                    placeholder="Reason for return, damage notes, etc."
+                    rows={3}
+                  />
+                </div>
+
+                <Button 
+                  onClick={handleReturnExisting} 
+                  disabled={!selectedRoll || isProcessing}
+                  className="w-full h-12 bg-emerald-600 hover:bg-emerald-700"
+                >
+                  <RotateCcw className="h-5 w-5 mr-2" />
+                  {isProcessing ? 'Processing...' : 'Process Return'}
+                </Button>
+              </CardContent>
+            </Card>
+          </>
+        ) : (
+          <>
+            {/* New Return Form */}
+            <Card className="rounded-2xl border-slate-100 shadow-sm lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Create Return for Untagged Roll</CardTitle>
+                <CardDescription>For rolls without tags or lost tags</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Owner *</Label>
+                    <Select 
+                      value={newRollForm.inventory_owner} 
+                      onValueChange={v => setNewRollForm(p => ({ ...p, inventory_owner: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="TexasTurf">TexasTurf</SelectItem>
+                        <SelectItem value="TurfCasa">TurfCasa</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Job (optional)</Label>
+                    <Select 
+                      value={newRollForm.job_id} 
+                      onValueChange={v => setNewRollForm(p => ({ ...p, job_id: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Link to job" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={null}>No job</SelectItem>
+                        {jobs.map(j => (
+                          <SelectItem key={j.id} value={j.id}>
+                            {j.job_name} - {j.customer_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Product Name *</Label>
+                    <Input 
+                      value={newRollForm.product_name}
+                      onChange={e => setNewRollForm(p => ({ ...p, product_name: e.target.value }))}
+                      placeholder="e.g., Majestic 70"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Dye Lot *</Label>
+                    <Input 
+                      value={newRollForm.dye_lot}
+                      onChange={e => setNewRollForm(p => ({ ...p, dye_lot: e.target.value }))}
+                      placeholder="Dye lot number"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Width (ft) *</Label>
+                    <Select 
+                      value={newRollForm.width_ft} 
+                      onValueChange={v => setNewRollForm(p => ({ ...p, width_ft: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="13">13 ft</SelectItem>
+                        <SelectItem value="15">15 ft</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Length (ft) *</Label>
+                    <Input 
+                      type="number"
+                      min="1"
+                      value={newRollForm.length_ft}
+                      onChange={e => setNewRollForm(p => ({ ...p, length_ft: e.target.value }))}
+                      placeholder="Measured length"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Condition *</Label>
+                    <Select 
+                      value={newRollForm.condition} 
+                      onValueChange={v => setNewRollForm(p => ({ ...p, condition: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="New">New</SelectItem>
+                        <SelectItem value="Good">Good</SelectItem>
+                        <SelectItem value="Used">Used</SelectItem>
+                        <SelectItem value="Damaged">Damaged</SelectItem>
+                        <SelectItem value="Scrap">Scrap</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Location</Label>
+                  <Select 
+                    value={newRollForm.location_id} 
+                    onValueChange={v => handleLocationSelect(v, setNewRollForm)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.map(l => (
+                        <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Notes</Label>
+                  <Textarea 
+                    value={newRollForm.notes}
+                    onChange={e => setNewRollForm(p => ({ ...p, notes: e.target.value }))}
+                    placeholder="Details about the return..."
                     rows={2}
                   />
                 </div>
 
-                <div className="md:col-span-2">
-                  <Button
-                    onClick={handleUntaggedReturn}
-                    disabled={isProcessing}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700"
-                  >
-                    {isProcessing ? 'Processing...' : 'Create Return Entry'}
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Processed Return */}
-        {processedReturn && (
-          <Card className="rounded-2xl border-emerald-200 bg-emerald-50 shadow-sm lg:col-span-2">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
-                  <Check className="h-5 w-5 text-emerald-600" />
-                </div>
-                <div>
-                  <p className="font-semibold text-emerald-800">Return Processed</p>
-                  <p className="text-sm text-emerald-600">Roll is back in inventory</p>
-                </div>
-              </div>
-              <div className="p-4 bg-white rounded-lg border border-emerald-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-mono font-bold text-lg">{processedReturn.roll_tag}</p>
-                    <p className="text-sm text-slate-600">
-                      {processedReturn.product_name} • {processedReturn.dye_lot} • 
-                      {processedReturn.width_ft}ft × {processedReturn.current_length_ft}ft
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={processedReturn.condition} size="sm" />
-                    <StatusBadge status={processedReturn.status} size="sm" />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                <Button 
+                  onClick={handleCreateNewReturn} 
+                  disabled={isProcessing}
+                  className="w-full h-12 bg-emerald-600 hover:bg-emerald-700"
+                >
+                  {isProcessing ? 'Creating...' : 'Create Return'}
+                </Button>
+              </CardContent>
+            </Card>
+          </>
         )}
       </div>
     </div>

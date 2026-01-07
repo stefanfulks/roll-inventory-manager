@@ -6,7 +6,8 @@ import { createPageUrl } from '@/utils';
 import { 
   Plus, 
   Eye,
-  Calendar
+  Calendar,
+  MapPin
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -92,7 +93,7 @@ export default function Jobs() {
 
   const handleCreateJob = () => {
     if (!newJob.job_name || !newJob.customer_name) {
-      toast.error('Please fill in Job Name and Customer');
+      toast.error('Please fill in job name and customer name');
       return;
     }
     createJobMutation.mutate(newJob);
@@ -104,7 +105,7 @@ export default function Jobs() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Jobs</h1>
-          <p className="text-slate-500 mt-1">Manage installation jobs and allocations</p>
+          <p className="text-slate-500 mt-1">Manage customer jobs and allocations</p>
         </div>
         <div className="flex items-center gap-2">
           <OwnerFilter value={ownerFilter} onChange={setOwnerFilter} />
@@ -125,7 +126,7 @@ export default function Jobs() {
                   <Input 
                     value={newJob.job_name}
                     onChange={e => setNewJob(p => ({ ...p, job_name: e.target.value }))}
-                    placeholder="e.g., Smith Residence Backyard"
+                    placeholder="e.g., Smith Residence Install"
                   />
                 </div>
 
@@ -147,31 +148,29 @@ export default function Jobs() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Owner</Label>
-                    <Select 
-                      value={newJob.inventory_owner} 
-                      onValueChange={v => setNewJob(p => ({ ...p, inventory_owner: v }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="TexasTurf">TexasTurf</SelectItem>
-                        <SelectItem value="TurfCasa">TurfCasa</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="space-y-2">
+                  <Label>Owner</Label>
+                  <Select 
+                    value={newJob.inventory_owner} 
+                    onValueChange={v => setNewJob(p => ({ ...p, inventory_owner: v }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="TexasTurf">TexasTurf</SelectItem>
+                      <SelectItem value="TurfCasa">TurfCasa</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                  <div className="space-y-2">
-                    <Label>Scheduled Date</Label>
-                    <Input 
-                      type="date"
-                      value={newJob.scheduled_date}
-                      onChange={e => setNewJob(p => ({ ...p, scheduled_date: e.target.value }))}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label>Scheduled Date</Label>
+                  <Input 
+                    type="date"
+                    value={newJob.scheduled_date}
+                    onChange={e => setNewJob(p => ({ ...p, scheduled_date: e.target.value }))}
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -179,8 +178,8 @@ export default function Jobs() {
                   <Textarea 
                     value={newJob.notes}
                     onChange={e => setNewJob(p => ({ ...p, notes: e.target.value }))}
-                    placeholder="Additional notes..."
-                    rows={2}
+                    placeholder="Optional notes..."
+                    rows={3}
                   />
                 </div>
 
@@ -233,13 +232,14 @@ export default function Jobs() {
                   <TableHead className="font-semibold">Address</TableHead>
                   <TableHead className="font-semibold">Scheduled</TableHead>
                   <TableHead className="font-semibold">Status</TableHead>
+                  <TableHead className="font-semibold">Created</TableHead>
                   <TableHead className="font-semibold">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredJobs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12 text-slate-500">
+                    <TableCell colSpan={8} className="text-center py-12 text-slate-500">
                       No jobs found
                     </TableCell>
                   </TableRow>
@@ -249,20 +249,29 @@ export default function Jobs() {
                       <TableCell className="font-medium">{job.job_name}</TableCell>
                       <TableCell>{job.customer_name}</TableCell>
                       <TableCell>
-                        {job.inventory_owner && <OwnerBadge owner={job.inventory_owner} size="sm" />}
+                        {job.inventory_owner ? (
+                          <OwnerBadge owner={job.inventory_owner} size="sm" />
+                        ) : (
+                          '-'
+                        )}
                       </TableCell>
-                      <TableCell className="text-slate-600 max-w-[200px] truncate">
+                      <TableCell className="text-slate-600 max-w-xs truncate">
                         {job.job_address || '-'}
                       </TableCell>
                       <TableCell>
                         {job.scheduled_date ? (
                           <div className="flex items-center gap-1 text-slate-600">
-                            <Calendar className="h-4 w-4" />
+                            <Calendar className="h-3 w-3" />
                             {format(new Date(job.scheduled_date), 'MMM d')}
                           </div>
-                        ) : '-'}
+                        ) : (
+                          '-'
+                        )}
                       </TableCell>
                       <TableCell><StatusBadge status={job.status} size="sm" /></TableCell>
+                      <TableCell className="text-slate-500">
+                        {format(new Date(job.created_date), 'MMM d')}
+                      </TableCell>
                       <TableCell>
                         <Link to={createPageUrl(`JobDetail?id=${job.id}`)}>
                           <Button variant="ghost" size="sm">
