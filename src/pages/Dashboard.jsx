@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
 import { 
   Package, 
   Ruler, 
@@ -8,18 +10,24 @@ import {
   TrendingUp,
   Scissors,
   Truck,
-  RotateCcw,
+  Clock,
   AlertTriangle
 } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import StatCard from '@/components/ui/StatCard';
-import OwnerFilter from '@/components/inventory/OwnerFilter';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
 export default function Dashboard() {
-  const [ownerFilter, setOwnerFilter] = useState('TexasTurf');
+  const [showLowInventory, setShowLowInventory] = useState(false);
+  const [lowInventoryItems, setLowInventoryItems] = useState([]);
 
   const { data: rolls = [], isLoading: loadingRolls } = useQuery({
     queryKey: ['rolls'],
@@ -28,13 +36,40 @@ export default function Dashboard() {
 
   const { data: transactions = [], isLoading: loadingTx } = useQuery({
     queryKey: ['transactions'],
-    queryFn: () => base44.entities.Transaction.list('-created_date', 500),
+    queryFn: () => base44.entities.Transaction.list('-created_date', 1000),
   });
 
-  const { data: bundles = [] } = useQuery({
-    queryKey: ['bundles'],
-    queryFn: () => base44.entities.Bundle.list('-created_date', 100),
+  const { data: products = [] } = useQuery({
+    queryKey: ['products'],
+    queryFn: () => base44.entities.Product.list(),
   });
+
+  const { data: accessories = [] } = useQuery({
+    queryKey: ['accessories'],
+    queryFn: () => base44.entities.Accessory.list(),
+  });
+
+  const { data: materials = [] } = useQuery({
+    queryKey: ['materials'],
+    queryFn: () => base44.entities.Material.list(),
+  });
+
+  const { data: allocations = [] } = useQuery({
+    queryKey: ['allocations'],
+    queryFn: () => base44.entities.Allocation.list(),
+  });
+
+  const { data: settings = [] } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => base44.entities.Settings.list(),
+  });
+
+  const getSetting = (key, defaultValue) => {
+    const setting = settings.find(s => s.setting_key === key);
+    return setting ? parseInt(setting.setting_value) : defaultValue;
+  };
+
+  const longSittingDays = getSetting('long_sitting_days', 180);
 
   const filteredRolls = rolls.filter(r => r.inventory_owner === 'TexasTurf');
 
@@ -45,42 +80,92 @@ export default function Dashboard() {
   const childRolls = filteredRolls.filter(r => r.roll_type === 'Child');
   
   const totalSqft = availableRolls.reduce((sum, r) => sum + (r.current_length_ft * r.width_ft), 0);
-  const totalLinearFt = availableRolls.reduce((sum, r) => sum + r.current_length_ft, 0);
   
-  const lowInventoryRolls = filteredRolls.filter(r => 
-    r.status === 'Available' && r.current_length_ft < 25
-  );
+  // Calculate low inventory items
+  const lowInventory = [];
   
-  const returnedHoldRolls = filteredRolls.filter(r => r.status === 'ReturnedHold');
+  // Check turf products
+  products.forEach(product => {
+    if (product.min_stock_level_ft) {
+      const productRolls = availableRolls.filter(r => r.product_id === product.id);
+      const totalFt = productRolls.reduce((sum, r) => sum + r.current_length_ft, 0);
+      
+      if (totalFt < product.min_stock_level_ft) {
+        lowInventory.push({
+          type: 'Product',
+          name: product.product_name,
+          current: totalFt,
+          minimum: product.min_stock_level_ft,
+          unit: 'ft',
+          rolls: productRolls
+        });
+      }
+    }
+  });
+
+  // Check accessories
+  accessories.forEach(acc => {
+    if (acc.min_stock_level_units && acc.quantity_on_hand < acc.min_stock_level_units) {
+      lowInventory.push({
+        type: 'Accessory',
+        name: acc.item_name,
+        current: acc.quantity_on_hand || 0,
+        minimum: acc.min_stock_level_units,
+        unit: acc.unit_of_measure || 'units'
+      });
+    }
+  });
+
+  // Check materials
+  materials.forEach(mat => {
+    if (mat.min_stock_level_units && mat.quantity_on_hand < mat.min_stock_level_units) {
+      lowInventory.push({
+        type: 'Material',
+        name: mat.item_name,
+        current: mat.quantity_on_hand || 0,
+        minimum: mat.min_stock_level_units,
+        unit: mat.unit_of_measure || 'units'
+      });
+    }
+  });
+
+  // Calculate sitting inventory
+  const today = new Date();
+  const cutoffDate = new Date(today.getTime() - longSittingDays * 24 * 60 * 60 * 1000);
+  const sittingRolls = availableRolls.filter(r => {
+    if (!r.date_received) return false;
+    const receivedDate = new Date(r.date_received);
+    return receivedDate < cutoffDate;
+  });
+
+  // Calculate shipped out products (total sqft)
+  const shippedOutSqft = transactions
+    .filter(t => t.transaction_type === 'SendOutToJob' && t.fulfillment_for === 'TexasTurf')
+    .reduce((sum, t) => {
+      const sqft = Math.abs(t.length_change_ft || 0) * (t.width_ft || 0);
+      return sum + sqft;
+    }, 0);
+
+  // Calculate top products by number of jobs
+  const productJobCount = {};
+  allocations.forEach(alloc => {
+    if (alloc.product_name) {
+      if (!productJobCount[alloc.product_name]) {
+        productJobCount[alloc.product_name] = new Set();
+      }
+      productJobCount[alloc.product_name].add(alloc.job_id);
+    }
+  });
+
+  const topProductsData = Object.entries(productJobCount)
+    .map(([name, jobSet]) => ({ name, value: jobSet.size }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
 
   // Status distribution
   const statusData = Object.entries(
     filteredRolls.reduce((acc, r) => {
       acc[r.status] = (acc[r.status] || 0) + 1;
-      return acc;
-    }, {})
-  ).map(([name, value]) => ({ name, value }));
-
-  // Product distribution
-  const productData = Object.entries(
-    filteredRolls.reduce((acc, r) => {
-      acc[r.product_name] = (acc[r.product_name] || 0) + (r.current_length_ft * r.width_ft);
-      return acc;
-    }, {})
-  ).map(([name, value]) => ({ name, value: Math.round(value) }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 8);
-
-  // Owner distribution
-  const ownerData = [
-    { name: 'TexasTurf', value: rolls.filter(r => r.inventory_owner === 'TexasTurf').length },
-    { name: 'TurfCasa', value: rolls.filter(r => r.inventory_owner === 'TurfCasa').length },
-  ];
-
-  // Width distribution
-  const widthData = Object.entries(
-    filteredRolls.reduce((acc, r) => {
-      acc[`${r.width_ft}ft`] = (acc[`${r.width_ft}ft`] || 0) + 1;
       return acc;
     }, {})
   ).map(([name, value]) => ({ name, value }));
@@ -140,28 +225,33 @@ export default function Dashboard() {
           iconColor="text-emerald-600"
         />
         <StatCard
-          title="Available Sq Ft"
+          title="Total Sq Ft in Stock"
           value={totalSqft.toLocaleString()}
-          subtitle={`${totalLinearFt.toLocaleString()} linear ft`}
+          subtitle={`${availableRolls.length} available rolls`}
           icon={Ruler}
           iconBg="bg-blue-100"
           iconColor="text-blue-600"
         />
+        <div 
+          onClick={() => lowInventory.length > 0 && setShowLowInventory(true)}
+          className={lowInventory.length > 0 ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}
+        >
+          <StatCard
+            title="Low Inventory"
+            value={lowInventory.length}
+            subtitle="Items below minimum"
+            icon={AlertTriangle}
+            iconBg={lowInventory.length > 0 ? "bg-amber-100" : "bg-slate-100"}
+            iconColor={lowInventory.length > 0 ? "text-amber-600" : "text-slate-400"}
+          />
+        </div>
         <StatCard
-          title="Low Inventory"
-          value={lowInventoryRolls.length}
-          subtitle="Rolls under 25ft"
-          icon={AlertTriangle}
-          iconBg={lowInventoryRolls.length > 0 ? "bg-amber-100" : "bg-slate-100"}
-          iconColor={lowInventoryRolls.length > 0 ? "text-amber-600" : "text-slate-400"}
-        />
-        <StatCard
-          title="Returns Hold"
-          value={returnedHoldRolls.length}
-          subtitle="Pending inspection"
-          icon={RotateCcw}
-          iconBg={returnedHoldRolls.length > 0 ? "bg-orange-100" : "bg-slate-100"}
-          iconColor={returnedHoldRolls.length > 0 ? "text-orange-600" : "text-slate-400"}
+          title="Sitting Inventory"
+          value={sittingRolls.length}
+          subtitle={`Over ${longSittingDays} days old`}
+          icon={Clock}
+          iconBg={sittingRolls.length > 0 ? "bg-orange-100" : "bg-slate-100"}
+          iconColor={sittingRolls.length > 0 ? "text-orange-600" : "text-slate-400"}
         />
       </div>
 
@@ -196,45 +286,28 @@ export default function Dashboard() {
 
         {/* Shipped Out Tracking */}
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Shipped Out by Product (Sq Ft)</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart 
-                data={Object.entries(
-                  transactions
-                    .filter(t => t.transaction_type === 'SendOutToJob' && t.fulfillment_for === 'TexasTurf')
-                    .reduce((acc, t) => {
-                      const product = t.product_name || 'Unknown';
-                      const sqft = (t.length_change_ft || 0) * (t.width_ft || 0);
-                      acc[product] = (acc[product] || 0) + Math.abs(sqft);
-                      return acc;
-                    }, {})
-                ).map(([name, value]) => ({ name, value: Math.round(value) }))
-                  .sort((a, b) => b.value - a.value)
-                  .slice(0, 8)
-                } 
-                layout="vertical"
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis type="number" tick={{ fontSize: 12 }} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
-                <Tooltip formatter={(value) => `${value.toLocaleString()} sq ft`} />
-                <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Total Shipped Out</h3>
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="text-5xl font-bold text-blue-600 mb-2">
+                {shippedOutSqft.toLocaleString()}
+              </div>
+              <div className="text-slate-600">Square Feet Shipped</div>
+              <div className="text-sm text-slate-400 mt-2">All-time total from warehouse</div>
+            </div>
           </div>
         </div>
 
-        {/* Product Distribution */}
+        {/* Top Products by Jobs */}
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Top Products by Sq Ft</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Top Products by Jobs</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={productData} layout="vertical">
+              <BarChart data={topProductsData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis type="number" tick={{ fontSize: 12 }} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
-                <Tooltip formatter={(value) => `${value.toLocaleString()} sq ft`} />
+                <Tooltip formatter={(value) => `${value} jobs`} />
                 <Bar dataKey="value" fill="#10b981" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -253,33 +326,6 @@ export default function Dashboard() {
                 <Tooltip />
                 <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
               </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Width Distribution */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Inventory by Width</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={widthData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={2}
-                  dataKey="value"
-                  label={({ name, value }) => `${name}: ${value}`}
-                  labelLine={false}
-                >
-                  {widthData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -314,6 +360,51 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Low Inventory Dialog */}
+      <Dialog open={showLowInventory} onOpenChange={setShowLowInventory}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Low Inventory Items</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            {lowInventory.map((item, idx) => (
+              <div key={idx} className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-800">{item.name}</span>
+                      <span className="text-xs px-2 py-0.5 bg-slate-200 text-slate-600 rounded">
+                        {item.type}
+                      </span>
+                    </div>
+                    <div className="text-sm text-slate-600 mt-1">
+                      Current: <span className="font-medium text-amber-700">{item.current} {item.unit}</span>
+                      {' '} / Minimum: <span className="font-medium">{item.minimum} {item.unit}</span>
+                    </div>
+                  </div>
+                </div>
+                {item.rolls && item.rolls.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-amber-200">
+                    <p className="text-xs font-medium text-slate-600 mb-2">Available Rolls:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {item.rolls.map(roll => (
+                        <Link
+                          key={roll.id}
+                          to={createPageUrl(`RollDetail?id=${roll.id}`)}
+                          className="text-xs px-2 py-1 bg-white border border-amber-300 rounded hover:bg-amber-100 transition-colors"
+                        >
+                          {roll.tt_sku_tag_number || roll.roll_tag} ({roll.current_length_ft}ft)
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

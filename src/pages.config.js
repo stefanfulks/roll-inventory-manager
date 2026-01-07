@@ -7,6 +7,7 @@ import JobDetail from './pages/JobDetail';
 import Jobs from './pages/Jobs';
 import Locations from './pages/Locations';
 import Materials from './pages/Materials';
+import PendingInventory from './pages/PendingInventory';
 import Products from './pages/Products';
 import Receive from './pages/Receive';
 import Reports from './pages/Reports';
@@ -14,7 +15,6 @@ import Returns from './pages/Returns';
 import RollDetail from './pages/RollDetail';
 import Settings from './pages/Settings';
 import Transactions from './pages/Transactions';
-import PendingInventory from './pages/PendingInventory';
 import __Layout from './Layout.jsx';
 
 
@@ -28,6 +28,7 @@ export const PAGES = {
     "Jobs": Jobs,
     "Locations": Locations,
     "Materials": Materials,
+    "PendingInventory": PendingInventory,
     "Products": Products,
     "Receive": Receive,
     "Reports": Reports,
@@ -35,7 +36,6 @@ export const PAGES = {
     "RollDetail": RollDetail,
     "Settings": Settings,
     "Transactions": Transactions,
-    "PendingInventory": PendingInventory,
 }
 
 export const pagesConfig = {
