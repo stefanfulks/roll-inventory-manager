@@ -8,6 +8,9 @@ import BundleDetail from './pages/BundleDetail';
 import Jobs from './pages/Jobs';
 import JobDetail from './pages/JobDetail';
 import Returns from './pages/Returns';
+import Products from './pages/Products';
+import Locations from './pages/Locations';
+import Transactions from './pages/Transactions';
 import __Layout from './Layout.jsx';
 
 
@@ -22,6 +25,9 @@ export const PAGES = {
     "Jobs": Jobs,
     "JobDetail": JobDetail,
     "Returns": Returns,
+    "Products": Products,
+    "Locations": Locations,
+    "Transactions": Transactions,
 }
 
 export const pagesConfig = {
