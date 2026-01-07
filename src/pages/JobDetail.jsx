@@ -89,6 +89,15 @@ export default function JobDetail() {
     queryFn: () => base44.entities.Material.list(),
   });
 
+  const { data: returnTransactions = [] } = useQuery({
+    queryKey: ['returnTransactions', jobId],
+    queryFn: () => base44.entities.Transaction.filter({ 
+      job_id: jobId, 
+      transaction_type: 'ReturnFromJob' 
+    }),
+    enabled: !!jobId,
+  });
+
   const createAllocationMutation = useMutation({
     mutationFn: async (items) => {
       for (const item of items) {
@@ -365,16 +374,6 @@ export default function JobDetail() {
   const totalAllocatedSentOut = turfAllocations
     .filter(a => a.status === 'Fulfilled')
     .reduce((sum, a) => sum + (a.requested_length_ft || 0), 0);
-  
-  // Calculate total returned from transactions
-  const { data: returnTransactions = [] } = useQuery({
-    queryKey: ['returnTransactions', jobId],
-    queryFn: () => base44.entities.Transaction.filter({ 
-      job_id: jobId, 
-      transaction_type: 'ReturnFromJob' 
-    }),
-    enabled: !!jobId,
-  });
   
   const totalReturned = returnTransactions.reduce((sum, t) => sum + (t.length_change_ft || 0), 0);
   const totalUsed = totalAllocatedSentOut - totalReturned;
