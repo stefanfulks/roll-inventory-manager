@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
 import { 
+  FileText, 
   Download,
   Filter
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -24,29 +24,11 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from '@/components/ui/skeleton';
 import OwnerFilter from '@/components/inventory/OwnerFilter';
-import OwnerBadge from '@/components/ui/OwnerBadge';
 import { format } from 'date-fns';
-
-const transactionTypeColors = {
-  Receive: 'bg-emerald-100 text-emerald-700',
-  CutCreateChild: 'bg-violet-100 text-violet-700',
-  Ship: 'bg-blue-100 text-blue-700',
-  Return: 'bg-amber-100 text-amber-700',
-  Adjustment: 'bg-orange-100 text-orange-700',
-  Scrap: 'bg-red-100 text-red-700',
-  Transfer: 'bg-cyan-100 text-cyan-700',
-  Allocate: 'bg-indigo-100 text-indigo-700',
-  Reserve: 'bg-purple-100 text-purple-700',
-  BundleAdd: 'bg-pink-100 text-pink-700',
-  BundleRemove: 'bg-slate-100 text-slate-700',
-};
 
 export default function Transactions() {
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
 
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ['transactions'],
@@ -56,24 +38,43 @@ export default function Transactions() {
   const filteredTransactions = transactions.filter(tx => {
     if (ownerFilter !== 'all' && tx.inventory_owner !== ownerFilter) return false;
     if (typeFilter !== 'all' && tx.transaction_type !== typeFilter) return false;
-    if (searchTerm) {
-      const search = searchTerm.toLowerCase();
-      return (
-        tx.roll_tag?.toLowerCase().includes(search) ||
-        tx.product_name?.toLowerCase().includes(search) ||
-        tx.dye_lot?.toLowerCase().includes(search) ||
-        tx.notes?.toLowerCase().includes(search)
-      );
-    }
-    if (dateFrom && new Date(tx.created_date) < new Date(dateFrom)) return false;
-    if (dateTo && new Date(tx.created_date) > new Date(dateTo + 'T23:59:59')) return false;
     return true;
   });
 
+  const transactionTypes = [
+    'Receive',
+    'CutCreateChild',
+    'Ship',
+    'Return',
+    'Adjustment',
+    'Scrap',
+    'Transfer',
+    'Allocate',
+    'Reserve',
+    'BundleAdd',
+    'BundleRemove'
+  ];
+
   const exportCSV = () => {
-    const headers = ['Date', 'Type', 'Owner', 'Roll Tag', 'Product', 'Dye Lot', 'Width', 'Length Change', 'Before', 'After', 'Job', 'Notes', 'User'];
+    const headers = [
+      'Date',
+      'Type',
+      'Owner',
+      'Roll Tag',
+      'Product',
+      'Dye Lot',
+      'Width',
+      'Length Change',
+      'Before',
+      'After',
+      'Job',
+      'Bundle',
+      'Performed By',
+      'Notes'
+    ];
+    
     const rows = filteredTransactions.map(tx => [
-      format(new Date(tx.created_date), 'yyyy-MM-dd HH:mm'),
+      format(new Date(tx.created_date), 'yyyy-MM-dd HH:mm:ss'),
       tx.transaction_type,
       tx.inventory_owner,
       tx.roll_tag,
@@ -83,12 +84,13 @@ export default function Transactions() {
       tx.length_change_ft,
       tx.length_before_ft,
       tx.length_after_ft,
-      tx.job_name,
-      tx.notes,
-      tx.performed_by
+      tx.job_name || '',
+      tx.bundle_id || '',
+      tx.performed_by || '',
+      tx.notes || ''
     ]);
     
-    const csv = [headers, ...rows].map(row => row.map(c => `"${c || ''}"`).join(',')).join('\n');
+    const csv = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -97,13 +99,30 @@ export default function Transactions() {
     a.click();
   };
 
+  const getTypeColor = (type) => {
+    const colors = {
+      Receive: 'text-emerald-600 bg-emerald-50',
+      CutCreateChild: 'text-purple-600 bg-purple-50',
+      Ship: 'text-blue-600 bg-blue-50',
+      Return: 'text-orange-600 bg-orange-50',
+      Adjustment: 'text-amber-600 bg-amber-50',
+      Scrap: 'text-red-600 bg-red-50',
+      Transfer: 'text-slate-600 bg-slate-50',
+      Allocate: 'text-indigo-600 bg-indigo-50',
+      Reserve: 'text-violet-600 bg-violet-50',
+      BundleAdd: 'text-cyan-600 bg-cyan-50',
+      BundleRemove: 'text-pink-600 bg-pink-50'
+    };
+    return colors[type] || 'text-slate-600 bg-slate-50';
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Transaction Log</h1>
-          <p className="text-slate-500 mt-1">{filteredTransactions.length} transactions</p>
+          <p className="text-slate-500 mt-1">Complete audit trail of inventory movements</p>
         </div>
         <div className="flex items-center gap-2">
           <OwnerFilter value={ownerFilter} onChange={setOwnerFilter} />
@@ -115,48 +134,43 @@ export default function Transactions() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
-        <div className="flex flex-wrap gap-3">
-          <Input
-            placeholder="Search roll tag, product, dye lot..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-64"
-          />
-          
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-[160px]">
-              <SelectValue placeholder="Type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="Receive">Receive</SelectItem>
-              <SelectItem value="CutCreateChild">Cut/Create Child</SelectItem>
-              <SelectItem value="Ship">Ship</SelectItem>
-              <SelectItem value="Return">Return</SelectItem>
-              <SelectItem value="Adjustment">Adjustment</SelectItem>
-              <SelectItem value="Scrap">Scrap</SelectItem>
-              <SelectItem value="Transfer">Transfer</SelectItem>
-              <SelectItem value="Reserve">Reserve</SelectItem>
-              <SelectItem value="BundleAdd">Bundle Add</SelectItem>
-              <SelectItem value="BundleRemove">Bundle Remove</SelectItem>
-            </SelectContent>
-          </Select>
+      <div className="flex gap-3">
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Transaction Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            {transactionTypes.map(type => (
+              <SelectItem key={type} value={type}>{type}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-          <Input
-            type="date"
-            placeholder="From"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="w-40"
-          />
-          <Input
-            type="date"
-            placeholder="To"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="w-40"
-          />
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl p-4 border border-slate-100">
+          <p className="text-sm text-slate-500 mb-1">Total Transactions</p>
+          <p className="text-2xl font-bold text-slate-800">{filteredTransactions.length}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-slate-100">
+          <p className="text-sm text-slate-500 mb-1">Receives</p>
+          <p className="text-2xl font-bold text-emerald-600">
+            {filteredTransactions.filter(t => t.transaction_type === 'Receive').length}
+          </p>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-slate-100">
+          <p className="text-sm text-slate-500 mb-1">Ships</p>
+          <p className="text-2xl font-bold text-blue-600">
+            {filteredTransactions.filter(t => t.transaction_type === 'Ship').length}
+          </p>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-slate-100">
+          <p className="text-sm text-slate-500 mb-1">Returns</p>
+          <p className="text-2xl font-bold text-orange-600">
+            {filteredTransactions.filter(t => t.transaction_type === 'Return').length}
+          </p>
         </div>
       </div>
 
@@ -164,7 +178,7 @@ export default function Transactions() {
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="p-6 space-y-4">
-            {[1, 2, 3, 4, 5].map(i => (
+            {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
               <Skeleton key={i} className="h-12 w-full" />
             ))}
           </div>
@@ -173,15 +187,15 @@ export default function Transactions() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50">
-                  <TableHead className="font-semibold">Date</TableHead>
+                  <TableHead className="font-semibold">Date/Time</TableHead>
                   <TableHead className="font-semibold">Type</TableHead>
-                  <TableHead className="font-semibold">Owner</TableHead>
                   <TableHead className="font-semibold">Roll Tag</TableHead>
                   <TableHead className="font-semibold">Product</TableHead>
-                  <TableHead className="font-semibold">Dye Lot</TableHead>
-                  <TableHead className="font-semibold">Length Change</TableHead>
-                  <TableHead className="font-semibold">Before → After</TableHead>
+                  <TableHead className="font-semibold">Change</TableHead>
+                  <TableHead className="font-semibold">Before</TableHead>
+                  <TableHead className="font-semibold">After</TableHead>
                   <TableHead className="font-semibold">Notes</TableHead>
+                  <TableHead className="font-semibold">Performed By</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -194,32 +208,32 @@ export default function Transactions() {
                 ) : (
                   filteredTransactions.map((tx) => (
                     <TableRow key={tx.id} className="hover:bg-slate-50 transition-colors">
-                      <TableCell className="text-slate-600 whitespace-nowrap">
-                        {format(new Date(tx.created_date), 'MMM d, h:mm a')}
+                      <TableCell className="font-mono text-xs whitespace-nowrap">
+                        {format(new Date(tx.created_date), 'MMM d, HH:mm')}
                       </TableCell>
                       <TableCell>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${transactionTypeColors[tx.transaction_type] || 'bg-slate-100 text-slate-600'}`}>
+                        <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded ${getTypeColor(tx.transaction_type)}`}>
                           {tx.transaction_type}
                         </span>
                       </TableCell>
-                      <TableCell>
-                        {tx.inventory_owner && <OwnerBadge owner={tx.inventory_owner} size="sm" />}
+                      <TableCell className="font-mono text-sm">{tx.roll_tag}</TableCell>
+                      <TableCell className="text-slate-600 max-w-xs truncate">
+                        {tx.product_name || '-'}
                       </TableCell>
-                      <TableCell className="font-mono">{tx.roll_tag}</TableCell>
-                      <TableCell>{tx.product_name}</TableCell>
-                      <TableCell className="text-slate-600">{tx.dye_lot}</TableCell>
                       <TableCell>
                         {tx.length_change_ft !== 0 && (
-                          <span className={tx.length_change_ft > 0 ? 'text-emerald-600' : 'text-red-600'}>
+                          <span className={`font-medium ${tx.length_change_ft > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                             {tx.length_change_ft > 0 ? '+' : ''}{tx.length_change_ft}ft
                           </span>
                         )}
                       </TableCell>
-                      <TableCell className="text-slate-600">
-                        {tx.length_before_ft}ft → {tx.length_after_ft}ft
-                      </TableCell>
-                      <TableCell className="text-slate-500 max-w-[200px] truncate">
+                      <TableCell className="text-slate-500">{tx.length_before_ft || '-'} ft</TableCell>
+                      <TableCell className="text-slate-500">{tx.length_after_ft || '-'} ft</TableCell>
+                      <TableCell className="text-slate-600 max-w-xs truncate text-xs">
                         {tx.notes || '-'}
+                      </TableCell>
+                      <TableCell className="text-slate-500 text-xs">
+                        {tx.performed_by || tx.created_by || '-'}
                       </TableCell>
                     </TableRow>
                   ))
