@@ -52,7 +52,7 @@ export default function CutRoll() {
   const [selectedRoll, setSelectedRoll] = useState(null);
   const [cutLength, setCutLength] = useState('');
   const [destination, setDestination] = useState('inventory');
-  const [selectedBundleId, setSelectedBundleId] = useState('');
+  const [selectedJobId, setSelectedJobId] = useState('');
   const [isCutting, setIsCutting] = useState(false);
   const [createdChild, setCreatedChild] = useState(null);
 
@@ -65,13 +65,13 @@ export default function CutRoll() {
     ),
   });
 
-  const { data: bundles = [] } = useQuery({
-    queryKey: ['bundles-draft'],
-    queryFn: () => base44.entities.Bundle.filter(
-      { status: 'Draft' },
-      '-created_date',
-      50
-    ),
+  const { data: jobs = [] } = useQuery({
+    queryKey: ['jobs-active'],
+    queryFn: async () => {
+      const draft = await base44.entities.Job.filter({ status: 'Draft' }, '-created_date', 50);
+      const fulfilling = await base44.entities.Job.filter({ status: 'Fulfilling' }, '-created_date', 50);
+      return [...draft, ...fulfilling];
+    },
   });
 
   // Load preselected roll
@@ -135,7 +135,7 @@ export default function CutRoll() {
       condition: selectedRoll.condition,
       location_id: selectedRoll.location_id,
       location_name: selectedRoll.location_name,
-      status: destination === 'bundle' && selectedBundleId ? 'Bundled' : 'Available',
+      status: destination === 'job' && selectedJobId ? 'Allocated' : 'Available',
       date_received: new Date().toISOString().split('T')[0],
     };
 
@@ -165,34 +165,40 @@ export default function CutRoll() {
       notes: `Cut ${cutLengthNum}ft from ${selectedRoll.roll_tag} to create ${childTag}`
     });
 
-    // If adding to bundle
-    if (destination === 'bundle' && selectedBundleId) {
-      await base44.entities.BundleItem.create({
-        bundle_id: selectedBundleId,
-        roll_id: childRoll.id,
-        roll_tag: childTag,
+    // If adding to job
+    if (destination === 'job' && selectedJobId) {
+      const selectedJob = jobs.find(j => j.id === selectedJobId);
+      
+      await base44.entities.Allocation.create({
+        job_id: selectedJobId,
+        job_name: selectedJob?.job_number || '',
         product_name: childRoll.product_name,
-        dye_lot: childRoll.dye_lot,
         width_ft: childRoll.width_ft,
-        length_ft_included: cutLengthNum
+        dye_lot_preference: childRoll.dye_lot,
+        requested_length_ft: cutLengthNum,
+        allocated_length_ft: cutLengthNum,
+        status: 'Reserved',
+        allocated_roll_ids: [childRoll.id]
       });
 
       await base44.entities.Transaction.create({
-        transaction_type: 'BundleAdd',
-        inventory_owner: selectedRoll.inventory_owner,
+        transaction_type: 'AssignToJob',
+        fulfillment_for: selectedRoll.inventory_owner,
         roll_id: childRoll.id,
-        roll_tag: childTag,
-        bundle_id: selectedBundleId,
+        tt_sku_tag_number: childTag,
+        job_id: selectedJobId,
+        job_number: selectedJob?.job_number || '',
+        product_name: childRoll.product_name,
+        dye_lot: childRoll.dye_lot,
+        width_ft: childRoll.width_ft,
         length_change_ft: 0,
-        length_before_ft: cutLengthNum,
-        length_after_ft: cutLengthNum,
-        notes: `Added to bundle after cut`
+        notes: `Allocated to job ${selectedJob?.job_number} after cut`
       });
     }
 
     queryClient.invalidateQueries({ queryKey: ['rolls'] });
     queryClient.invalidateQueries({ queryKey: ['transactions'] });
-    queryClient.invalidateQueries({ queryKey: ['bundle-items'] });
+    queryClient.invalidateQueries({ queryKey: ['allocations'] });
 
     setCreatedChild({ ...childData, id: childRoll.id });
     setSelectedRoll({ ...selectedRoll, current_length_ft: newParentLength, status: parentStatus });
@@ -302,22 +308,22 @@ export default function CutRoll() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="inventory">Save to Inventory</SelectItem>
-                  <SelectItem value="bundle">Add to Bundle</SelectItem>
+                  <SelectItem value="job">Add to Job</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {destination === 'bundle' && (
+            {destination === 'job' && (
               <div className="space-y-2">
-                <Label>Select Bundle</Label>
-                <Select value={selectedBundleId} onValueChange={setSelectedBundleId}>
+                <Label>Select Job</Label>
+                <Select value={selectedJobId} onValueChange={setSelectedJobId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a draft bundle" />
+                    <SelectValue placeholder="Select a job" />
                   </SelectTrigger>
                   <SelectContent>
-                    {bundles.map(b => (
-                      <SelectItem key={b.id} value={b.id}>
-                        {b.bundle_tag} - {b.customer_name || 'No customer'}
+                    {jobs.map(j => (
+                      <SelectItem key={j.id} value={j.id}>
+                        {j.job_number} - {j.customer_name || 'No customer'} ({j.status})
                       </SelectItem>
                     ))}
                   </SelectContent>
