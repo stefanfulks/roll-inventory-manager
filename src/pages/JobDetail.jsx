@@ -53,6 +53,8 @@ export default function JobDetail() {
   const [showAddProducts, setShowAddProducts] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItems, setSelectedItems] = useState([]);
+  const [showReceiveReturns, setShowReceiveReturns] = useState(false);
+  const [returnItems, setReturnItems] = useState([]);
 
   const { data: job, isLoading } = useQuery({
     queryKey: ['job', jobId],
@@ -149,11 +151,69 @@ export default function JobDetail() {
     }
   });
 
+  const completeJobMutation = useMutation({
+    mutationFn: async () => {
+      await base44.entities.Job.update(jobId, { status: 'Completed' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job', jobId] });
+      toast.success('Job completed');
+    }
+  });
+
+  const receiveReturnsMutation = useMutation({
+    mutationFn: async (returns) => {
+      const user = await base44.auth.me();
+      
+      for (const returnItem of returns) {
+        if (returnItem.type === 'roll') {
+          const roll = rolls.find(r => r.id === returnItem.id);
+          if (roll) {
+            // Update roll status and length
+            await base44.entities.Roll.update(returnItem.id, {
+              status: 'Available',
+              current_length_ft: returnItem.returned_length_ft,
+              tt_sku_tag_number: returnItem.new_tt_sku || roll.tt_sku_tag_number
+            });
+            
+            // Create transaction
+            await base44.entities.Transaction.create({
+              transaction_type: 'ReturnFromJob',
+              fulfillment_for: job.fulfillment_for,
+              roll_id: returnItem.id,
+              tt_sku_tag_number: returnItem.new_tt_sku || roll.tt_sku_tag_number,
+              job_id: jobId,
+              job_number: job.job_number,
+              product_name: roll.product_name,
+              dye_lot: roll.dye_lot,
+              width_ft: roll.width_ft,
+              length_change_ft: returnItem.returned_length_ft,
+              length_before_ft: 0,
+              length_after_ft: returnItem.returned_length_ft,
+              performed_by: user.email,
+              notes: `Returned from job ${job.job_number}`
+            });
+          }
+        }
+      }
+      
+      // Update job status
+      await base44.entities.Job.update(jobId, { status: 'AwaitingReturnInventory' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      setShowReceiveReturns(false);
+      setReturnItems([]);
+      toast.success('Returns processed successfully');
+    }
+  });
+
   const sendOutMutation = useMutation({
     mutationFn: async () => {
       const user = await base44.auth.me();
       
-      // Update job status
+      // Update job status to SentOut
       await base44.entities.Job.update(jobId, { status: 'SentOut' });
 
       // Process each allocation
@@ -300,8 +360,24 @@ export default function JobDetail() {
     );
   }
 
-  const totalRequested = allocations.reduce((sum, a) => sum + (a.requested_length_ft || 0), 0);
-  const totalAllocated = allocations.reduce((sum, a) => sum + (a.allocated_length_ft || 0), 0);
+  // Calculate metrics for turf only
+  const turfAllocations = allocations.filter(a => a.item_type === 'roll');
+  const totalAllocatedSentOut = turfAllocations
+    .filter(a => a.status === 'Fulfilled')
+    .reduce((sum, a) => sum + (a.requested_length_ft || 0), 0);
+  
+  // Calculate total returned from transactions
+  const { data: returnTransactions = [] } = useQuery({
+    queryKey: ['returnTransactions', jobId],
+    queryFn: () => base44.entities.Transaction.filter({ 
+      job_id: jobId, 
+      transaction_type: 'ReturnFromJob' 
+    }),
+    enabled: !!jobId,
+  });
+  
+  const totalReturned = returnTransactions.reduce((sum, t) => sum + (t.length_change_ft || 0), 0);
+  const totalUsed = totalAllocatedSentOut - totalReturned;
 
   return (
     <div className="space-y-6">
@@ -322,16 +398,35 @@ export default function JobDetail() {
             <p className="text-slate-500 mt-1">{job.customer_name || 'No customer name'}</p>
           </div>
         </div>
-        {job.status === 'Draft' && allocations.length > 0 && (
-          <Button 
-            onClick={() => sendOutMutation.mutate()}
-            disabled={sendOutMutation.isPending}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            <Send className="h-4 w-4 mr-2" />
-            Send Out Job
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {job.status === 'Draft' && allocations.length > 0 && (
+            <Button 
+              onClick={() => sendOutMutation.mutate()}
+              disabled={sendOutMutation.isPending}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Send className="h-4 w-4 mr-2" />
+              Send Out Job
+            </Button>
+          )}
+          {job.status === 'SentOut' && job.fulfillment_for === 'TexasTurf' && (
+            <Button 
+              onClick={() => setShowReceiveReturns(true)}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              Receive Returns
+            </Button>
+          )}
+          {((job.status === 'SentOut' && job.fulfillment_for === 'TurfCasa') || job.status === 'AwaitingReturnInventory') && (
+            <Button 
+              onClick={() => completeJobMutation.mutate()}
+              disabled={completeJobMutation.isPending}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              Complete Job
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -386,24 +481,24 @@ export default function JobDetail() {
             <CardTitle className="text-lg">Allocation Summary</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="p-4 bg-slate-50 rounded-lg">
-                <p className="text-sm text-slate-500 mb-1">Total Requested</p>
-                <p className="text-2xl font-bold text-slate-800">{totalRequested} ft</p>
-              </div>
-              <div className="p-4 bg-emerald-50 rounded-lg">
-                <p className="text-sm text-slate-500 mb-1">Total Allocated</p>
-                <p className="text-2xl font-bold text-emerald-600">{totalAllocated} ft</p>
+                <p className="text-sm text-slate-500 mb-1">Requested (Job Form)</p>
+                <p className="text-2xl font-bold text-slate-800">
+                  {job.requested_total_turf_length_ft || 0} ft
+                </p>
               </div>
               <div className="p-4 bg-blue-50 rounded-lg">
-                <p className="text-sm text-slate-500 mb-1">Allocations</p>
-                <p className="text-2xl font-bold text-blue-600">{allocations.length}</p>
+                <p className="text-sm text-slate-500 mb-1">Allocated (Sent Out)</p>
+                <p className="text-2xl font-bold text-blue-600">{totalAllocatedSentOut} ft</p>
               </div>
               <div className="p-4 bg-amber-50 rounded-lg">
-                <p className="text-sm text-slate-500 mb-1">Fulfillment</p>
-                <p className="text-2xl font-bold text-amber-600">
-                  {totalRequested > 0 ? Math.round((totalAllocated / totalRequested) * 100) : 0}%
-                </p>
+                <p className="text-sm text-slate-500 mb-1">Returned</p>
+                <p className="text-2xl font-bold text-amber-600">{totalReturned} ft</p>
+              </div>
+              <div className="p-4 bg-emerald-50 rounded-lg">
+                <p className="text-sm text-slate-500 mb-1">Used (Turf Only)</p>
+                <p className="text-2xl font-bold text-emerald-600">{totalUsed} ft</p>
               </div>
             </div>
           </CardContent>
@@ -544,7 +639,13 @@ export default function JobDetail() {
                   <TableRow key={allocation.id}>
                     <TableCell>
                       <StatusBadge 
-                        status={allocation.item_type === 'roll' ? 'Parent' : allocation.item_type === 'accessory' ? 'Accessory' : 'Material'} 
+                        status={
+                          allocation.item_type === 'roll' 
+                            ? (rolls.find(r => allocation.allocated_roll_ids?.includes(r.id))?.roll_type || 'Parent')
+                            : allocation.item_type === 'accessory' 
+                            ? 'Accessory' 
+                            : 'Material'
+                        } 
                         size="sm" 
                       />
                     </TableCell>
@@ -580,6 +681,118 @@ export default function JobDetail() {
           </Table>
         </div>
       </Card>
+
+      {/* Receive Returns Dialog */}
+      <Dialog open={showReceiveReturns} onOpenChange={setShowReceiveReturns}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Receive Returns from Job</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Select rolls that were returned and specify their remaining length.
+            </p>
+            
+            <div className="border rounded-lg max-h-96 overflow-y-auto">
+              {turfAllocations.filter(a => a.status === 'Fulfilled').map(allocation => {
+                const rollIds = allocation.allocated_roll_ids || [];
+                return rollIds.map(rollId => {
+                  const roll = rolls.find(r => r.id === rollId);
+                  if (!roll) return null;
+                  
+                  const returnItem = returnItems.find(r => r.id === rollId);
+                  
+                  return (
+                    <div key={rollId} className="p-4 border-b last:border-b-0">
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={!!returnItem}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setReturnItems(prev => [...prev, {
+                                id: rollId,
+                                type: 'roll',
+                                returned_length_ft: 0,
+                                new_tt_sku: ''
+                              }]);
+                            } else {
+                              setReturnItems(prev => prev.filter(r => r.id !== rollId));
+                            }
+                          }}
+                          className="mt-1"
+                        />
+                        <div className="flex-1">
+                          <p className="font-medium">{roll.tt_sku_tag_number || roll.roll_tag}</p>
+                          <p className="text-sm text-slate-600">
+                            {roll.product_name} • {roll.width_ft}ft • Dye Lot: {roll.dye_lot}
+                          </p>
+                          
+                          {returnItem && (
+                            <div className="mt-3 space-y-2">
+                              <div>
+                                <Label className="text-xs">Returned Length (ft)</Label>
+                                <Input
+                                  type="number"
+                                  value={returnItem.returned_length_ft}
+                                  onChange={(e) => {
+                                    setReturnItems(prev => prev.map(r => 
+                                      r.id === rollId 
+                                        ? { ...r, returned_length_ft: parseFloat(e.target.value) || 0 }
+                                        : r
+                                    ));
+                                  }}
+                                  placeholder="0"
+                                  className="mt-1"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs">New TT SKU # (optional)</Label>
+                                <Input
+                                  value={returnItem.new_tt_sku}
+                                  onChange={(e) => {
+                                    setReturnItems(prev => prev.map(r => 
+                                      r.id === rollId 
+                                        ? { ...r, new_tt_sku: e.target.value }
+                                        : r
+                                    ));
+                                  }}
+                                  placeholder="Leave blank to keep existing"
+                                  className="mt-1 font-mono"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })}
+            </div>
+
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowReceiveReturns(false);
+                  setReturnItems([]);
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={() => receiveReturnsMutation.mutate(returnItems)}
+                disabled={receiveReturnsMutation.isPending || returnItems.length === 0}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+              >
+                Process Returns
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

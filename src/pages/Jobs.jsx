@@ -52,6 +52,7 @@ export default function Jobs() {
   const [newJob, setNewJob] = useState({
     job_number: '',
     fulfillment_for: 'TexasTurf',
+    requested_total_turf_length_ft: '',
     customer_name: '',
     job_address: '',
     scheduled_date: '',
@@ -76,6 +77,7 @@ export default function Jobs() {
       setNewJob({
         job_number: '',
         fulfillment_for: 'TexasTurf',
+        requested_total_turf_length_ft: '',
         customer_name: '',
         job_address: '',
         scheduled_date: '',
@@ -144,6 +146,16 @@ export default function Jobs() {
                       <SelectItem value="TurfCasa">TurfCasa Retail</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Total Requested Turf (ft)</Label>
+                  <Input 
+                    type="number"
+                    value={newJob.requested_total_turf_length_ft}
+                    onChange={e => setNewJob(p => ({ ...p, requested_total_turf_length_ft: e.target.value }))}
+                    placeholder="From Jobber form"
+                  />
                 </div>
 
                 <div className="space-y-2">
