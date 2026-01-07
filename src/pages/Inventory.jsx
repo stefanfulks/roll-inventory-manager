@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { 
@@ -9,7 +9,11 @@ import {
   Download,
   Eye,
   ChevronDown,
-  Scissors
+  Scissors,
+  Trash2,
+  Edit,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,18 +38,39 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from 'sonner';
 import RollSearch from '@/components/inventory/RollSearch';
 import OwnerFilter from '@/components/inventory/OwnerFilter';
 import StatusBadge from '@/components/ui/StatusBadge';
 import OwnerBadge from '@/components/ui/OwnerBadge';
 
 export default function Inventory() {
+  const queryClient = useQueryClient();
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [productFilter, setProductFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedRolls, setSelectedRolls] = useState([]);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editingRoll, setEditingRoll] = useState(null);
+  const [editForm, setEditForm] = useState({
+    manufacturer_roll_number: '',
+    location_bin: '',
+    location_row: '',
+    dye_lot: '',
+    notes: ''
+  });
 
   const { data: rolls = [], isLoading } = useQuery({
     queryKey: ['rolls'],
@@ -75,6 +100,80 @@ export default function Inventory() {
   });
 
   const uniqueProducts = [...new Set(rolls.map(r => r.product_name).filter(Boolean))];
+
+  const updateRollMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.Roll.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      toast.success('Roll updated successfully');
+    }
+  });
+
+  const deleteRollsMutation = useMutation({
+    mutationFn: async (rollIds) => {
+      for (const id of rollIds) {
+        await base44.entities.Roll.delete(id);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      setSelectedRolls([]);
+      toast.success('Rolls deleted successfully');
+    }
+  });
+
+  const handleSelectAll = (checked) => {
+    if (checked) {
+      setSelectedRolls(filteredRolls.map(r => r.id));
+    } else {
+      setSelectedRolls([]);
+    }
+  };
+
+  const handleSelectRoll = (rollId, checked) => {
+    if (checked) {
+      setSelectedRolls(prev => [...prev, rollId]);
+    } else {
+      setSelectedRolls(prev => prev.filter(id => id !== rollId));
+    }
+  };
+
+  const handleEditRoll = (roll) => {
+    setEditingRoll(roll);
+    setEditForm({
+      manufacturer_roll_number: roll.manufacturer_roll_number || '',
+      location_bin: roll.location_bin || '',
+      location_row: roll.location_row || '',
+      dye_lot: roll.dye_lot || '',
+      notes: roll.notes || ''
+    });
+    setShowEditDialog(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingRoll) return;
+    
+    const updates = {};
+    if (editForm.manufacturer_roll_number) updates.manufacturer_roll_number = editForm.manufacturer_roll_number;
+    if (editForm.location_bin && editForm.location_row) {
+      updates.location_bin = editForm.location_bin;
+      updates.location_row = editForm.location_row;
+      updates.status = 'Available';
+    }
+    if (editForm.dye_lot) updates.dye_lot = editForm.dye_lot;
+    if (editForm.notes !== undefined) updates.notes = editForm.notes;
+
+    await updateRollMutation.mutateAsync({ id: editingRoll.id, data: updates });
+    setShowEditDialog(false);
+    setEditingRoll(null);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedRolls.length === 0) return;
+    if (!confirm(`Delete ${selectedRolls.length} selected rolls? This cannot be undone.`)) return;
+    
+    await deleteRollsMutation.mutateAsync(selectedRolls);
+  };
 
   const exportCSV = () => {
     const headers = ['Roll Tag', 'SKU', 'Owner', 'Product', 'Dye Lot', 'Width', 'Current Length', 'Type', 'Status', 'Location', 'Condition'];
@@ -111,6 +210,16 @@ export default function Inventory() {
         </div>
         <div className="flex items-center gap-2">
           <OwnerFilter value={ownerFilter} onChange={setOwnerFilter} />
+          {selectedRolls.length > 0 && (
+            <Button 
+              variant="destructive" 
+              onClick={handleBulkDelete}
+              disabled={deleteRollsMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete ({selectedRolls.length})
+            </Button>
+          )}
           <Button variant="outline" onClick={exportCSV}>
             <Download className="h-4 w-4 mr-2" />
             Export
@@ -182,6 +291,12 @@ export default function Inventory() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50">
+                  <TableHead className="w-12">
+                    <Checkbox 
+                      checked={selectedRolls.length === filteredRolls.length && filteredRolls.length > 0}
+                      onCheckedChange={handleSelectAll}
+                    />
+                  </TableHead>
                   <TableHead className="font-semibold">Roll Tag</TableHead>
                   <TableHead className="font-semibold">Owner</TableHead>
                   <TableHead className="font-semibold">Product</TableHead>
@@ -197,14 +312,20 @@ export default function Inventory() {
               <TableBody>
                 {filteredRolls.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-12 text-slate-500">
+                    <TableCell colSpan={11} className="text-center py-12 text-slate-500">
                       No rolls found matching your filters
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredRolls.map((roll) => (
                     <TableRow key={roll.id} className="hover:bg-slate-50 transition-colors">
-                      <TableCell className="font-mono font-medium">{roll.roll_tag}</TableCell>
+                      <TableCell>
+                        <Checkbox 
+                          checked={selectedRolls.includes(roll.id)}
+                          onCheckedChange={(checked) => handleSelectRoll(roll.id, checked)}
+                        />
+                      </TableCell>
+                      <TableCell className="font-mono font-medium">{roll.tt_sku_tag_number || roll.roll_tag}</TableCell>
                       <TableCell><OwnerBadge owner={roll.inventory_owner} size="sm" /></TableCell>
                       <TableCell className="font-medium">{roll.product_name}</TableCell>
                       <TableCell className="text-slate-600">{roll.dye_lot}</TableCell>
@@ -215,7 +336,9 @@ export default function Inventory() {
                       </TableCell>
                       <TableCell><StatusBadge status={roll.roll_type} size="sm" /></TableCell>
                       <TableCell><StatusBadge status={roll.status} size="sm" /></TableCell>
-                      <TableCell className="text-slate-600">{roll.location_name || '-'}</TableCell>
+                      <TableCell className="text-slate-600">
+                        {roll.location_bin && roll.location_row ? `${roll.location_bin}-${roll.location_row}` : '-'}
+                      </TableCell>
                       <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -229,6 +352,10 @@ export default function Inventory() {
                                 <Eye className="h-4 w-4 mr-2" />
                                 View Details
                               </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleEditRoll(roll)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit Roll
                             </DropdownMenuItem>
                             {roll.status === 'Available' && roll.current_length_ft > 0 && (
                               <DropdownMenuItem asChild>
@@ -249,6 +376,83 @@ export default function Inventory() {
           </div>
         )}
       </div>
+
+      {/* Edit Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Roll: {editingRoll?.tt_sku_tag_number}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Manufacturer Roll Number</Label>
+              <Input 
+                value={editForm.manufacturer_roll_number}
+                onChange={e => setEditForm(p => ({ ...p, manufacturer_roll_number: e.target.value }))}
+                placeholder="From manufacturer's roll tag"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Dye Lot</Label>
+              <Input 
+                value={editForm.dye_lot}
+                onChange={e => setEditForm(p => ({ ...p, dye_lot: e.target.value }))}
+                placeholder="Dye lot number"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Location Bin</Label>
+                <Select
+                  value={editForm.location_bin}
+                  onValueChange={v => setEditForm(p => ({ ...p, location_bin: v }))}
+                >
+                  <SelectTrigger><SelectValue placeholder="1-9" /></SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 9 }, (_, i) => i + 1).map(bin => (
+                      <SelectItem key={bin} value={bin.toString()}>{bin}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Location Row</Label>
+                <Select
+                  value={editForm.location_row}
+                  onValueChange={v => setEditForm(p => ({ ...p, location_row: v }))}
+                >
+                  <SelectTrigger><SelectValue placeholder="A-C" /></SelectTrigger>
+                  <SelectContent>
+                    {['A', 'B', 'C'].map(row => (
+                      <SelectItem key={row} value={row}>{row}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Notes</Label>
+              <Input 
+                value={editForm.notes}
+                onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))}
+                placeholder="Optional notes"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSaveEdit}
+              disabled={updateRollMutation.isPending}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
