@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
 export default function Dashboard() {
-  const [ownerFilter, setOwnerFilter] = useState('all');
+  const [ownerFilter, setOwnerFilter] = useState('TexasTurf');
 
   const { data: rolls = [], isLoading: loadingRolls } = useQuery({
     queryKey: ['rolls'],
@@ -36,9 +36,7 @@ export default function Dashboard() {
     queryFn: () => base44.entities.Bundle.list('-created_date', 100),
   });
 
-  const filteredRolls = ownerFilter === 'all' 
-    ? rolls 
-    : rolls.filter(r => r.inventory_owner === ownerFilter);
+  const filteredRolls = rolls.filter(r => r.inventory_owner === 'TexasTurf');
 
   // Calculate metrics
   const availableRolls = filteredRolls.filter(r => r.status === 'Available');
@@ -127,9 +125,8 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Dashboard</h1>
-          <p className="text-slate-500 mt-1">Inventory overview and analytics</p>
+          <p className="text-slate-500 mt-1">TexasTurf inventory overview and analytics</p>
         </div>
-        <OwnerFilter value={ownerFilter} onChange={setOwnerFilter} />
       </div>
 
       {/* Stats Grid */}
@@ -197,14 +194,19 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Owner Distribution */}
+        {/* Condition Distribution */}
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">TexasTurf vs TurfCasa</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Inventory by Condition</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={ownerData}
+                  data={Object.entries(
+                    filteredRolls.reduce((acc, r) => {
+                      acc[r.condition] = (acc[r.condition] || 0) + 1;
+                      return acc;
+                    }, {})
+                  ).map(([name, value]) => ({ name, value }))}
                   cx="50%"
                   cy="50%"
                   innerRadius={50}
@@ -214,8 +216,9 @@ export default function Dashboard() {
                   label={({ name, value }) => `${name}: ${value}`}
                   labelLine={false}
                 >
-                  <Cell fill="#10b981" />
-                  <Cell fill="#3b82f6" />
+                  {[0, 1, 2, 3, 4].map((index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
                 </Pie>
                 <Tooltip />
                 <Legend />
