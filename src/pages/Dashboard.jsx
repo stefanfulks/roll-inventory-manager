@@ -11,8 +11,13 @@ import {
   Scissors,
   Truck,
   Clock,
-  AlertTriangle
+  AlertTriangle,
+  Send
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import StatCard from '@/components/ui/StatCard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -28,6 +33,8 @@ const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 export default function Dashboard() {
   const [showLowInventory, setShowLowInventory] = useState(false);
   const [lowInventoryItems, setLowInventoryItems] = useState([]);
+  const [slackChannel, setSlackChannel] = useState('');
+  const [sendingSlack, setSendingSlack] = useState(false);
 
   const { data: rolls = [], isLoading: loadingRolls } = useQuery({
     queryKey: ['rolls'],
@@ -72,6 +79,41 @@ export default function Dashboard() {
   const longSittingDays = getSetting('long_sitting_days', 180);
 
   const filteredRolls = rolls.filter(r => r.inventory_owner === 'TexasTurf');
+
+  const handleSendLowStockAlert = async () => {
+    if (!slackChannel.trim()) {
+      toast.error('Please enter a Slack channel name');
+      return;
+    }
+
+    if (lowInventory.length === 0) {
+      toast.error('No low stock items to report');
+      return;
+    }
+
+    setSendingSlack(true);
+    try {
+      const lowStockProducts = lowInventory.map(item => ({
+        product_name: item.name,
+        current_stock: item.current,
+        min_stock: item.minimum,
+        shortage: item.minimum - item.current,
+        unit: item.unit
+      }));
+
+      await base44.functions.invoke('sendLowStockAlert', {
+        channel: slackChannel.startsWith('#') ? slackChannel : `#${slackChannel}`,
+        lowStockProducts
+      });
+
+      toast.success(`Low stock alert sent to ${slackChannel}`);
+      setShowLowInventory(false);
+    } catch (error) {
+      toast.error(error.message || 'Failed to send Slack alert');
+    } finally {
+      setSendingSlack(false);
+    }
+  };
 
   // Calculate metrics
   const availableRolls = filteredRolls.filter(r => r.status === 'Available');
@@ -434,6 +476,35 @@ export default function Dashboard() {
           <DialogHeader>
             <DialogTitle>Low Inventory Items</DialogTitle>
           </DialogHeader>
+          
+          {/* Slack Alert Section */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+            <div className="flex items-start gap-3">
+              <Send className="h-5 w-5 text-blue-600 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-medium text-blue-900 mb-2">Send Alert to Slack</p>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Channel name (e.g., #inventory)"
+                    value={slackChannel}
+                    onChange={(e) => setSlackChannel(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button 
+                    onClick={handleSendLowStockAlert}
+                    disabled={sendingSlack}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {sendingSlack ? 'Sending...' : 'Send Alert'}
+                  </Button>
+                </div>
+                <p className="text-xs text-blue-600 mt-1">
+                  Note: Slack must be authorized first in app settings
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-4 mt-4">
             {lowInventory.map((item, idx) => (
               <div key={idx} className="p-4 bg-amber-50 border border-amber-200 rounded-lg">

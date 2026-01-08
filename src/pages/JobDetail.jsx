@@ -11,7 +11,8 @@ import {
   MapPin,
   Search,
   Package,
-  Send
+  Send,
+  MessageSquare
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,6 +56,8 @@ export default function JobDetail() {
   const [selectedItems, setSelectedItems] = useState([]);
   const [showReceiveReturns, setShowReceiveReturns] = useState(false);
   const [returnItems, setReturnItems] = useState([]);
+  const [slackChannel, setSlackChannel] = useState('');
+  const [sendingReport, setSendingReport] = useState(false);
 
   const { data: job, isLoading } = useQuery({
     queryKey: ['job', jobId],
@@ -171,6 +174,27 @@ export default function JobDetail() {
       toast.success('Job completed');
     }
   });
+
+  const handleSendJobReport = async () => {
+    if (!slackChannel.trim()) {
+      toast.error('Please enter a Slack channel name');
+      return;
+    }
+
+    setSendingReport(true);
+    try {
+      await base44.functions.invoke('sendJobCompletionReport', {
+        channel: slackChannel.startsWith('#') ? slackChannel : `#${slackChannel}`,
+        jobId: jobId
+      });
+
+      toast.success(`Job report sent to ${slackChannel}`);
+    } catch (error) {
+      toast.error(error.message || 'Failed to send Slack report');
+    } finally {
+      setSendingReport(false);
+    }
+  };
 
   const receiveReturnsMutation = useMutation({
     mutationFn: async (returns) => {
@@ -425,13 +449,34 @@ export default function JobDetail() {
             </Button>
           )}
           {((job.status === 'SentOut' && job.fulfillment_for === 'TurfCasa') || job.status === 'AwaitingReturnInventory') && (
-            <Button 
-              onClick={() => completeJobMutation.mutate()}
-              disabled={completeJobMutation.isPending}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              Complete Job
-            </Button>
+            <>
+              {job.status === 'AwaitingReturnInventory' && (
+                <div className="flex gap-2 items-center">
+                  <Input
+                    placeholder="Slack channel (e.g., #jobs)"
+                    value={slackChannel}
+                    onChange={(e) => setSlackChannel(e.target.value)}
+                    className="w-48"
+                  />
+                  <Button 
+                    onClick={handleSendJobReport}
+                    disabled={sendingReport}
+                    variant="outline"
+                    className="border-blue-600 text-blue-600 hover:bg-blue-50"
+                  >
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    {sendingReport ? 'Sending...' : 'Send Report'}
+                  </Button>
+                </div>
+              )}
+              <Button 
+                onClick={() => completeJobMutation.mutate()}
+                disabled={completeJobMutation.isPending}
+                className="bg-emerald-600 hover:bg-emerald-700"
+              >
+                Complete Job
+              </Button>
+            </>
           )}
         </div>
       </div>
