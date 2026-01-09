@@ -10,6 +10,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
+import { toast } from 'sonner';
 import {
   Select,
   SelectContent,
@@ -122,6 +125,33 @@ export default function TurfOverageReport() {
     avgVariance: Math.round(w.variance / w.count)
   }));
 
+  const generatePDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text('Turf Overage Report', 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+
+    doc.autoTable({
+      head: [['Job #', 'Customer', 'Date', 'Requested', 'Used', 'Variance', 'Var %']],
+      body: jobVariances.map(j => [
+        j.job_number,
+        j.customer_name || '-',
+        format(new Date(j.date), 'MM/dd/yyyy'),
+        `${j.requested} ft`,
+        `${j.used} ft`,
+        `${j.variance} ft`,
+        `${j.variancePercent}%`,
+      ]),
+      startY: 30,
+      headStyles: { fillColor: [52, 73, 94] },
+      styles: { fontSize: 8 },
+    });
+
+    doc.save(`turf_overage_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    toast.success('Turf Overage PDF exported');
+  };
+
   const exportCSV = () => {
     const headers = ['Job #', 'Customer', 'Date', 'Requested (ft)', 'Used (ft)', 'Variance (ft)', 'Variance (%)'];
     const rows = jobVariances.map(j => [
@@ -141,6 +171,7 @@ export default function TurfOverageReport() {
     a.href = url;
     a.download = `turf_overage_report_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
+    toast.success('Turf Overage CSV exported');
   };
 
   const totalVariance = jobVariances.reduce((sum, j) => sum + j.variance, 0);
@@ -156,10 +187,16 @@ export default function TurfOverageReport() {
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Turf Overage Report</h1>
           <p className="text-slate-500 mt-1">Analyze turf usage vs. requested amounts</p>
         </div>
-        <Button variant="outline" onClick={exportCSV}>
-          <Download className="h-4 w-4 mr-2" />
-          Export
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={exportCSV}>
+            <Download className="h-4 w-4 mr-2" />
+            CSV
+          </Button>
+          <Button className="bg-red-600 hover:bg-red-700" onClick={generatePDF}>
+            <Download className="h-4 w-4 mr-2" />
+            PDF
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}

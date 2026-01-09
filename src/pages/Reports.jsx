@@ -13,6 +13,8 @@ import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format, differenceInDays } from 'date-fns';
 import { toast } from 'sonner';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 export default function Reports() {
   const { data: rolls = [], isLoading: rollsLoading } = useQuery({
@@ -78,6 +80,33 @@ export default function Reports() {
       }));
   };
 
+  const generateCurrentInventoryPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text('Current Inventory Report', 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+
+    doc.autoTable({
+      head: [['Roll Tag', 'Product', 'Dye Lot', 'W (ft)', 'L (ft)', 'Status', 'Location']],
+      body: texasTurfRolls.map(roll => [
+        roll.roll_tag,
+        roll.product_name,
+        roll.dye_lot,
+        roll.width_ft,
+        roll.current_length_ft,
+        roll.status,
+        roll.location_name || '-',
+      ]),
+      startY: 30,
+      headStyles: { fillColor: [52, 73, 94] },
+      styles: { fontSize: 8 },
+    });
+
+    doc.save(`current_inventory_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    toast.success('Current Inventory PDF exported');
+  };
+
   const exportCurrentInventory = () => {
     const headers = [
       'Roll Tag',
@@ -118,6 +147,26 @@ export default function Reports() {
     toast.success('Inventory report exported');
   };
 
+  const generateLowInventoryPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text('Low Inventory Report', 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+
+    const lowInventory = getLowInventoryProducts();
+    doc.autoTable({
+      head: [['Product', 'Width (ft)', 'Available Rolls']],
+      body: lowInventory.map(item => [item.product_name, item.width_ft, item.count]),
+      startY: 30,
+      headStyles: { fillColor: [52, 73, 94] },
+      styles: { fontSize: 8 },
+    });
+
+    doc.save(`low_inventory_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    toast.success('Low Inventory PDF exported');
+  };
+
   const exportLowInventory = () => {
     const lowInventory = getLowInventoryProducts();
     const headers = ['Product', 'Width (ft)', 'Available Rolls', 'Status'];
@@ -131,6 +180,34 @@ export default function Reports() {
     const csv = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
     downloadCSV(csv, `low_inventory_${format(new Date(), 'yyyy-MM-dd')}.csv`);
     toast.success('Low inventory report exported');
+  };
+
+  const generateLongSittingPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text('Long-Sitting Inventory Report', 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+
+    const longSitting = getLongSittingRolls();
+    doc.autoTable({
+      head: [['Roll Tag', 'Product', 'Dye Lot', 'W (ft)', 'L (ft)', 'Location', 'Days']],
+      body: longSitting.map(roll => [
+        roll.roll_tag,
+        roll.product_name,
+        roll.dye_lot,
+        roll.width_ft,
+        roll.current_length_ft,
+        roll.location_name || '-',
+        roll.days_sitting,
+      ]),
+      startY: 30,
+      headStyles: { fillColor: [52, 73, 94] },
+      styles: { fontSize: 8 },
+    });
+
+    doc.save(`long_sitting_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    toast.success('Long-Sitting Inventory PDF exported');
   };
 
   const exportLongSitting = () => {
@@ -160,6 +237,33 @@ export default function Reports() {
     const csv = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
     downloadCSV(csv, `long_sitting_${format(new Date(), 'yyyy-MM-dd')}.csv`);
     toast.success('Long-sitting report exported');
+  };
+
+  const generateTransactionsPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text('Transaction Log Report', 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+
+    const texasTurfTx = transactions.filter(tx => tx.inventory_owner === 'TexasTurf');
+    doc.autoTable({
+      head: [['Date', 'Type', 'Roll Tag', 'Product', 'Change (ft)', 'Performed By']],
+      body: texasTurfTx.map(tx => [
+        format(new Date(tx.created_date), 'MM/dd HH:mm'),
+        tx.transaction_type,
+        tx.roll_tag,
+        tx.product_name || '-',
+        tx.length_change_ft || 0,
+        tx.performed_by || tx.created_by || '-',
+      ]),
+      startY: 30,
+      headStyles: { fillColor: [52, 73, 94] },
+      styles: { fontSize: 7 },
+    });
+
+    doc.save(`transactions_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    toast.success('Transaction Log PDF exported');
   };
 
   const exportTransactions = () => {
@@ -266,10 +370,16 @@ export default function Reports() {
                 {texasTurfRolls.filter(r => r.status === 'Available').length}
               </span>
             </div>
-            <Button onClick={exportCurrentInventory} className="w-full mt-4">
-              <Download className="h-4 w-4 mr-2" />
-              Export CSV
-            </Button>
+            <div className="flex gap-2 mt-4">
+              <Button onClick={exportCurrentInventory} className="w-full" variant="outline">
+                <Download className="h-4 w-4 mr-2" />
+                CSV
+              </Button>
+              <Button onClick={generateCurrentInventoryPDF} className="w-full bg-red-600 hover:bg-red-700">
+                <Download className="h-4 w-4 mr-2" />
+                PDF
+              </Button>
+            </div>
           </div>
         </Card>
 
@@ -301,15 +411,25 @@ export default function Reports() {
                 {lowInventory.length > 3 && <div className="py-1">+ {lowInventory.length - 3} more...</div>}
               </div>
             )}
-            <Button 
-              onClick={exportLowInventory} 
-              variant="outline" 
-              className="w-full mt-4"
-              disabled={lowInventory.length === 0}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export CSV
-            </Button>
+            <div className="flex gap-2 mt-4">
+              <Button 
+                onClick={exportLowInventory} 
+                variant="outline" 
+                className="w-full"
+                disabled={lowInventory.length === 0}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                CSV
+              </Button>
+              <Button 
+                onClick={generateLowInventoryPDF} 
+                className="w-full bg-red-600 hover:bg-red-700"
+                disabled={lowInventory.length === 0}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                PDF
+              </Button>
+            </div>
           </div>
         </Card>
 
@@ -341,15 +461,25 @@ export default function Reports() {
                 {longSitting.length > 3 && <div className="py-1">+ {longSitting.length - 3} more...</div>}
               </div>
             )}
-            <Button 
-              onClick={exportLongSitting} 
-              variant="outline" 
-              className="w-full mt-4"
-              disabled={longSitting.length === 0}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export CSV
-            </Button>
+            <div className="flex gap-2 mt-4">
+              <Button 
+                onClick={exportLongSitting} 
+                variant="outline" 
+                className="w-full"
+                disabled={longSitting.length === 0}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                CSV
+              </Button>
+              <Button 
+                onClick={generateLongSittingPDF} 
+                className="w-full bg-red-600 hover:bg-red-700"
+                disabled={longSitting.length === 0}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                PDF
+              </Button>
+            </div>
           </div>
         </Card>
 
@@ -377,10 +507,16 @@ export default function Reports() {
               <span className="text-sm text-slate-600">Date Range</span>
               <span className="text-xs text-slate-500">All time</span>
             </div>
-            <Button onClick={exportTransactions} className="w-full mt-4">
-              <Download className="h-4 w-4 mr-2" />
-              Export CSV
-            </Button>
+            <div className="flex gap-2 mt-4">
+              <Button onClick={exportTransactions} className="w-full" variant="outline">
+                <Download className="h-4 w-4 mr-2" />
+                CSV
+              </Button>
+              <Button onClick={generateTransactionsPDF} className="w-full bg-red-600 hover:bg-red-700">
+                <Download className="h-4 w-4 mr-2" />
+                PDF
+              </Button>
+            </div>
           </div>
         </Card>
       </div>

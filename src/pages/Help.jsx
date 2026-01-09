@@ -113,20 +113,31 @@ export default function Help() {
         'Low Inventory Report: Products falling below threshold settings',
         'Long-Sitting Inventory: Rolls that haven\'t moved in configured days',
         'Transaction Log: Complete audit trail of all inventory movements',
-        'Export reports as CSV for Excel or PDF for sharing',
+        'Export all reports as both CSV and PDF formats',
         'Use filters to generate specific reports by owner, status, or date range'
       ]
     },
     {
       icon: Package,
-      title: 'Products (Admin)',
-      description: 'Manage product catalog and SKU codes',
+      title: 'Turf Products (Admin)',
+      description: 'Manage turf product catalog and SKU codes',
       tips: [
         'Add new turf product types as inventory expands',
         'Set standard roll lengths for each product',
         'Define available widths (13ft, 15ft, etc.)',
         'Add SKU codes for integration with other systems',
         'Mark products as inactive when discontinued'
+      ]
+    },
+    {
+      icon: Package,
+      title: 'Other Inventory Items (Admin)',
+      description: 'Manage accessories, materials, and other inventory items',
+      tips: [
+        'Add new non-turf inventory items with categories, UOM, and unit definitions',
+        'Track quantity on hand and minimum stock levels',
+        'Edit details for existing inventory items',
+        'Filter and search items by name, SKU, or category'
       ]
     },
     {
@@ -138,7 +149,8 @@ export default function Help() {
         'Use consistent naming (e.g., Rack A-1, A-2, etc.)',
         'Designate specific areas for returns inspection',
         'Track truck locations for rolls in transit',
-        'Good location organization speeds up picking and shipping'
+        'Good location organization speeds up picking and shipping',
+        'Utilize suggested locations for quick setup of common areas like Aggregate Bins or specific Warehouses'
       ]
     },
     {
@@ -174,7 +186,7 @@ export default function Help() {
         </div>
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Help & Documentation</h1>
-          <p className="text-slate-500 mt-1">Learn how to use TurfTracker effectively</p>
+          <p className="text-slate-500 mt-1">Learn how to use TexasTurf inventory tracker effectively</p>
         </div>
       </div>
 
