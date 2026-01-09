@@ -45,6 +45,7 @@ export default function Products() {
   const [formData, setFormData] = useState({
     product_name: '',
     sku_code: '',
+    manufacturer_name: '',
     width_options: [13, 15],
     standard_roll_length_ft: 100,
     status: 'active',
@@ -54,6 +55,11 @@ export default function Products() {
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['products'],
     queryFn: () => base44.entities.Product.list('-created_date', 200),
+  });
+
+  const { data: manufacturers = [] } = useQuery({
+    queryKey: ['manufacturers'],
+    queryFn: () => base44.entities.Vendor.list(),
   });
 
   const saveMutation = useMutation({
@@ -87,6 +93,7 @@ export default function Products() {
       setFormData({
         product_name: product.product_name,
         sku_code: product.sku_code || '',
+        manufacturer_name: product.manufacturer_name || '',
         width_options: product.width_options || [13, 15],
         standard_roll_length_ft: product.standard_roll_length_ft || 100,
         status: product.status,
@@ -97,6 +104,7 @@ export default function Products() {
       setFormData({
         product_name: '',
         sku_code: '',
+        manufacturer_name: '',
         width_options: [13, 15],
         standard_roll_length_ft: 100,
         status: 'active',
@@ -147,8 +155,25 @@ export default function Products() {
                 <Input 
                   value={formData.product_name}
                   onChange={e => setFormData(p => ({ ...p, product_name: e.target.value }))}
-                  placeholder="e.g., Majestic 70"
+                  placeholder="e.g., TexasLush"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Manufacturer *</Label>
+                <Select 
+                  value={formData.manufacturer_name} 
+                  onValueChange={v => setFormData(p => ({ ...p, manufacturer_name: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select manufacturer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {manufacturers.map(m => (
+                      <SelectItem key={m.id} value={m.vendor_name}>{m.vendor_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
@@ -222,6 +247,7 @@ export default function Products() {
               <TableHeader>
                 <TableRow className="bg-slate-50">
                   <TableHead className="font-semibold">Product Name</TableHead>
+                  <TableHead className="font-semibold">Manufacturer</TableHead>
                   <TableHead className="font-semibold">SKU Code</TableHead>
                   <TableHead className="font-semibold">Standard Length</TableHead>
                   <TableHead className="font-semibold">Width Options</TableHead>
@@ -233,7 +259,7 @@ export default function Products() {
               <TableBody>
                 {products.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12 text-slate-500">
+                    <TableCell colSpan={8} className="text-center py-12 text-slate-500">
                       No products yet
                     </TableCell>
                   </TableRow>
@@ -241,6 +267,7 @@ export default function Products() {
                   products.map((product) => (
                     <TableRow key={product.id} className="hover:bg-slate-50 transition-colors">
                       <TableCell className="font-medium">{product.product_name}</TableCell>
+                      <TableCell>{product.manufacturer_name || '-'}</TableCell>
                       <TableCell className="font-mono text-sm">{product.sku_code || '-'}</TableCell>
                       <TableCell>{product.standard_roll_length_ft || 100} ft</TableCell>
                       <TableCell>
