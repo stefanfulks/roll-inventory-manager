@@ -69,15 +69,22 @@ export default function Returns() {
     queryFn: () => base44.entities.Roll.filter({ status: 'Shipped' }, '-created_date', 500),
   });
 
-  const handleSearchRoll = (searchTerm) => {
-    const found = shippedRolls.find(r => 
-      r.roll_tag?.toLowerCase() === searchTerm.toLowerCase() ||
-      r.roll_tag?.toLowerCase().includes(searchTerm.toLowerCase())
+  const handleSearchRoll = async (searchTerm) => {
+    const search = searchTerm.toLowerCase();
+    const results = await base44.entities.Roll.filter({
+      status: 'SentOut'
+    });
+    
+    const found = results.find(r => 
+      r.roll_tag?.toLowerCase().includes(search) ||
+      r.tt_sku_tag_number?.toLowerCase().includes(search) ||
+      r.manufacturer_roll_number?.toLowerCase().includes(search)
     );
+    
     if (found) {
       setSelectedRoll(found);
     } else {
-      toast.error('Roll not found or not shipped');
+      toast.error('Roll not found or not sent out');
     }
   };
 
@@ -248,7 +255,7 @@ export default function Returns() {
               <CardContent className="space-y-4">
                 <RollSearch 
                   onSearch={handleSearchRoll}
-                  placeholder="Scan shipped roll tag..."
+                  placeholder="Search by TT SKU #, roll tag, or manufacturer roll #..."
                   autoFocus
                 />
 

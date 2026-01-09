@@ -56,6 +56,7 @@ export default function JobDetail() {
   const [selectedItems, setSelectedItems] = useState([]);
   const [showReceiveReturns, setShowReceiveReturns] = useState(false);
   const [returnItems, setReturnItems] = useState([]);
+  const [returnInventoryItems, setReturnInventoryItems] = useState([]);
   const [slackChannel, setSlackChannel] = useState('');
   const [sendingReport, setSendingReport] = useState(false);
 
@@ -234,6 +235,25 @@ export default function JobDetail() {
               notes: `Returned from job ${job.job_number} - Condition: ${returnItem.condition || 'New'}${returnItem.has_existing_tag === 'new' ? ' - New tag assigned' : ''} - Location: ${returnItem.location_name || roll.location_name}`
             });
           }
+        } else if (returnItem.type === 'inventory_item') {
+          const inventoryItem = inventoryItems.find(i => i.id === returnItem.id);
+          if (inventoryItem) {
+            // Increment inventory quantity
+            await base44.entities.InventoryItem.update(returnItem.id, {
+              quantity_on_hand: inventoryItem.quantity_on_hand + returnItem.returned_quantity
+            });
+            
+            // Create transaction
+            await base44.entities.Transaction.create({
+              transaction_type: 'ReturnFromJob',
+              fulfillment_for: job.fulfillment_for,
+              job_id: jobId,
+              job_number: job.job_number,
+              product_name: inventoryItem.item_name,
+              performed_by: user.full_name || user.email,
+              notes: `Returned ${returnItem.returned_quantity} ${inventoryItem.unit_of_measure} from job ${job.job_number}`
+            });
+          }
         }
       }
       
@@ -243,10 +263,12 @@ export default function JobDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
       queryClient.invalidateQueries({ queryKey: ['returnTransactions', jobId] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       setShowReceiveReturns(false);
       setReturnItems([]);
+      setReturnInventoryItems([]);
       toast.success('Returns processed successfully');
     }
   });
@@ -749,12 +771,70 @@ export default function JobDetail() {
             </p>
             
             <div className="border rounded-lg max-h-96 overflow-y-auto">
-              {turfAllocations.filter(a => a.status === 'Fulfilled').length === 0 ? (
+              {allocations.filter(a => a.status === 'Fulfilled').length === 0 ? (
                 <div className="p-8 text-center text-slate-500">
-                  No rolls were sent out for this job
+                  No items were sent out for this job
                 </div>
               ) : (
-                turfAllocations.filter(a => a.status === 'Fulfilled').map(allocation => {
+                allocations.filter(a => a.status === 'Fulfilled').map(allocation => {
+                  if (allocation.item_type === 'inventory_item') {
+                    const item = inventoryItems.find(i => i.id === allocation.item_id);
+                    if (!item) return null;
+                    
+                    const returnItem = returnInventoryItems.find(r => r.id === item.id);
+                    
+                    return (
+                      <div key={`item-${item.id}`} className="p-4 border-b last:border-b-0">
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={!!returnItem}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setReturnInventoryItems(prev => [...prev, {
+                                  id: item.id,
+                                  type: 'inventory_item',
+                                  returned_quantity: allocation.requested_quantity || 1
+                                }]);
+                              } else {
+                                setReturnInventoryItems(prev => prev.filter(r => r.id !== item.id));
+                              }
+                            }}
+                            className="mt-1"
+                          />
+                          <div className="flex-1">
+                            <p className="font-medium">{item.item_name}</p>
+                            <p className="text-sm text-slate-600">
+                              SKU: {item.sku || 'N/A'} • Sent: {allocation.requested_quantity || 1} {item.unit_of_measure}
+                            </p>
+                            
+                            {returnItem && (
+                              <div className="mt-3 p-3 bg-slate-50 rounded-lg">
+                                <Label className="text-xs font-semibold">Returned Quantity *</Label>
+                                <Input
+                                  type="number"
+                                  step="1"
+                                  value={returnItem.returned_quantity}
+                                  onChange={(e) => {
+                                    setReturnInventoryItems(prev => prev.map(r => 
+                                      r.id === item.id 
+                                        ? { ...r, returned_quantity: parseInt(e.target.value) || 0 }
+                                        : r
+                                    ));
+                                  }}
+                                  placeholder="0"
+                                  className="mt-1"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  // Handle turf rolls
+                  if (allocation.item_type === 'roll') {
                   const rollIds = allocation.allocated_roll_ids || [];
                   return rollIds.map(rollId => {
                     const roll = allRolls.find(r => r.id === rollId);
@@ -908,6 +988,8 @@ export default function JobDetail() {
                       </div>
                     );
                   });
+                  }
+                  return null;
                 })
               )}
             </div>
@@ -924,8 +1006,8 @@ export default function JobDetail() {
                 Cancel
               </Button>
               <Button 
-                onClick={() => receiveReturnsMutation.mutate(returnItems)}
-                disabled={receiveReturnsMutation.isPending || returnItems.length === 0}
+                onClick={() => receiveReturnsMutation.mutate([...returnItems, ...returnInventoryItems])}
+                disabled={receiveReturnsMutation.isPending || (returnItems.length === 0 && returnInventoryItems.length === 0)}
                 className="flex-1 bg-emerald-600 hover:bg-emerald-700"
               >
                 Process Returns

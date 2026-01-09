@@ -1,16 +1,4 @@
 import React, { useState } from 'react';
-
-const suggestedLocations = [
-  { name: 'TurfCasa Warehouse', type: 'warehouse', notes: 'Main storage for TurfCasa inventory' },
-  { name: 'Small Warehouse', type: 'warehouse', notes: 'Smaller secondary warehouse' },
-  { name: 'Big Warehouse', type: 'warehouse', notes: 'Main large warehouse' },
-  { name: 'Aggregate Bin A', type: 'staging', notes: 'Aggregate storage bin A' },
-  { name: 'Aggregate Bin B', type: 'staging', notes: 'Aggregate storage bin B' },
-  { name: 'Aggregate Bin C', type: 'staging', notes: 'Aggregate storage bin C' },
-  { name: 'Aggregate Bin D', type: 'staging', notes: 'Aggregate storage bin D' },
-  { name: 'Aggregate Bin E', type: 'staging', notes: 'Aggregate storage bin E' },
-  { name: 'Aggregate Bin F', type: 'staging', notes: 'Aggregate storage bin F' },
-];
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
@@ -203,33 +191,6 @@ export default function Locations() {
             </div>
           </DialogContent>
         </Dialog>
-      </div>
-
-      {/* Suggested Locations */}
-      <div className="bg-white dark:bg-[#2d2d2d] rounded-2xl border border-slate-100 dark:border-slate-700/50 shadow-sm p-6">
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-white mb-4">Suggested Locations</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {suggestedLocations.map((sug, idx) => (
-            <div key={idx} className="flex items-center justify-between p-3 border border-slate-200 dark:border-slate-700 rounded-lg">
-              <div>
-                <p className="font-medium text-slate-800 dark:text-white">{sug.name}</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">{sug.type}</p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setEditingLocation(null);
-                  setFormData(sug);
-                  setShowDialog(true);
-                }}
-                className="dark:border-slate-600 dark:text-white dark:hover:bg-slate-700"
-              >
-                Add
-              </Button>
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* Table */}

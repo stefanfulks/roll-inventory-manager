@@ -1,7 +1,9 @@
+import ArchivedJobs from './pages/ArchivedJobs';
 import CutRoll from './pages/CutRoll';
 import Dashboard from './pages/Dashboard';
 import Help from './pages/Help';
 import Inventory from './pages/Inventory';
+import InventoryItems from './pages/InventoryItems';
 import JobDetail from './pages/JobDetail';
 import Jobs from './pages/Jobs';
 import Locations from './pages/Locations';
@@ -14,16 +16,16 @@ import RollDetail from './pages/RollDetail';
 import Settings from './pages/Settings';
 import Transactions from './pages/Transactions';
 import TurfOverageReport from './pages/TurfOverageReport';
-import ArchivedJobs from './pages/ArchivedJobs';
-import InventoryItems from './pages/InventoryItems';
 import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
+    "ArchivedJobs": ArchivedJobs,
     "CutRoll": CutRoll,
     "Dashboard": Dashboard,
     "Help": Help,
     "Inventory": Inventory,
+    "InventoryItems": InventoryItems,
     "JobDetail": JobDetail,
     "Jobs": Jobs,
     "Locations": Locations,
@@ -36,8 +38,6 @@ export const PAGES = {
     "Settings": Settings,
     "Transactions": Transactions,
     "TurfOverageReport": TurfOverageReport,
-    "ArchivedJobs": ArchivedJobs,
-    "InventoryItems": InventoryItems,
 }
 
 export const pagesConfig = {
