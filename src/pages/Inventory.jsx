@@ -6,7 +6,6 @@ import { createPageUrl } from '@/utils';
 import { 
   Package, 
   Filter, 
-  Download,
   Eye,
   ChevronDown,
   Scissors,
@@ -50,13 +49,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import RollSearch from '@/components/inventory/RollSearch';
-import OwnerFilter from '@/components/inventory/OwnerFilter';
 import StatusBadge from '@/components/ui/StatusBadge';
-import OwnerBadge from '@/components/ui/OwnerBadge';
 
 export default function Inventory() {
   const queryClient = useQueryClient();
-  const [ownerFilter, setOwnerFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [productFilter, setProductFilter] = useState('all');
@@ -85,7 +81,6 @@ export default function Inventory() {
   });
 
   const filteredRolls = rolls.filter(roll => {
-    if (ownerFilter !== 'all' && roll.inventory_owner !== ownerFilter) return false;
     if (statusFilter !== 'all' && roll.status !== statusFilter) return false;
     if (typeFilter !== 'all' && roll.roll_type !== typeFilter) return false;
     if (productFilter !== 'all' && roll.product_name !== productFilter) return false;
@@ -181,31 +176,6 @@ export default function Inventory() {
     await deleteRollsMutation.mutateAsync(selectedRolls);
   };
 
-  const exportCSV = () => {
-    const headers = ['Roll Tag', 'SKU', 'Owner', 'Product', 'Dye Lot', 'Width', 'Current Length', 'Type', 'Status', 'Location', 'Condition'];
-    const rows = filteredRolls.map(r => [
-      r.roll_tag,
-      r.custom_roll_sku,
-      r.inventory_owner,
-      r.product_name,
-      r.dye_lot,
-      r.width_ft,
-      r.current_length_ft,
-      r.roll_type,
-      r.status,
-      r.location_name,
-      r.condition
-    ]);
-    
-    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -214,23 +184,16 @@ export default function Inventory() {
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 dark:text-white">Inventory</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">{filteredRolls.length} rolls found</p>
         </div>
-        <div className="flex items-center gap-2">
-          <OwnerFilter value={ownerFilter} onChange={setOwnerFilter} />
-          {selectedRolls.length > 0 && (
-            <Button 
-              variant="destructive" 
-              onClick={handleBulkDelete}
-              disabled={deleteRollsMutation.isPending}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete ({selectedRolls.length})
-            </Button>
-          )}
-          <Button variant="outline" onClick={exportCSV}>
-            <Download className="h-4 w-4 mr-2" />
-            Export
+        {selectedRolls.length > 0 && (
+          <Button 
+            variant="destructive" 
+            onClick={handleBulkDelete}
+            disabled={deleteRollsMutation.isPending}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete ({selectedRolls.length})
           </Button>
-        </div>
+        )}
       </div>
 
       {/* Search & Filters */}
@@ -304,7 +267,6 @@ export default function Inventory() {
                     />
                   </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">TT SKU #</TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Owner</TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Product</TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Dye Lot</TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Width</TableHead>
@@ -318,7 +280,7 @@ export default function Inventory() {
               <TableBody>
                 {filteredRolls.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-12 text-slate-500 dark:text-slate-400">
+                    <TableCell colSpan={10} className="text-center py-12 text-slate-500 dark:text-slate-400">
                       No rolls found matching your filters
                     </TableCell>
                   </TableRow>
@@ -336,7 +298,6 @@ export default function Inventory() {
                         />
                       </TableCell>
                       <TableCell className="font-mono font-medium dark:text-white">{roll.tt_sku_tag_number || roll.roll_tag}</TableCell>
-                      <TableCell><OwnerBadge owner={roll.inventory_owner} size="sm" /></TableCell>
                       <TableCell className="font-medium dark:text-white">
                         <Link 
                           to={createPageUrl(`RollDetail?id=${roll.id}`)} 
