@@ -631,29 +631,30 @@ export default function JobDetail() {
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
                                 {isTurf ? (
-                                  <>
-                                    <div className="flex items-center gap-2">
-                                      <Package className="h-4 w-4 text-emerald-600" />
-                                      <span className="font-mono font-medium">{item.tt_sku_tag_number}</span>
-                                    </div>
-                                    <p className="text-sm font-medium text-slate-800 mt-1">
-                                      {item.product_name}
-                                    </p>
-                                    <div className="flex gap-3 mt-1 text-sm text-slate-600">
-                                      <span>Dye Lot: {item.dye_lot}</span>
-                                      <span>•</span>
-                                      <span>{item.width_ft}ft × {item.current_length_ft}ft</span>
-                                      <span>•</span>
-                                      <span>{item.location_bin && item.location_row ? `${item.location_bin}-${item.location_row}` : 'No location'}</span>
-                                    </div>
-                                  </>
+                                 <>
+                                   <div className="flex items-center gap-2">
+                                     <Package className="h-4 w-4 text-emerald-600" />
+                                     <span className="font-mono font-medium">{item.tt_sku_tag_number}</span>
+                                     <StatusBadge status={item.roll_type} size="sm" />
+                                   </div>
+                                   <p className="text-sm font-medium text-slate-800 mt-1">
+                                     {item.product_name}
+                                   </p>
+                                   <div className="flex gap-3 mt-1 text-sm text-slate-600">
+                                     <span>Dye Lot: {item.dye_lot}</span>
+                                     <span>•</span>
+                                     <span>{item.width_ft}ft × {item.current_length_ft}ft</span>
+                                     <span>•</span>
+                                     <span>{item.location_bin && item.location_row ? `${item.location_bin}-${item.location_row}` : 'No location'}</span>
+                                   </div>
+                                 </>
                                 ) : (
-                                  <>
-                                    <p className="font-medium text-slate-800">{item.item_name}</p>
-                                    <p className="text-sm text-slate-600 mt-1">
-                                      SKU: {item.sku || 'N/A'} • {item.unit_of_measure}
-                                    </p>
-                                  </>
+                                 <>
+                                   <p className="font-medium text-slate-800">{item.item_name}</p>
+                                   <p className="text-sm text-slate-600 mt-1">
+                                     SKU: {item.sku || 'N/A'} • {item.unit_of_measure}
+                                   </p>
+                                 </>
                                 )}
                               </div>
                               {isSelected && (
