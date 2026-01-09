@@ -64,14 +64,9 @@ export default function Dashboard() {
     queryFn: () => base44.entities.Product.list()
   });
 
-  const { data: accessories = [] } = useQuery({
-    queryKey: ['accessories'],
-    queryFn: () => base44.entities.Accessory.list()
-  });
-
-  const { data: materials = [] } = useQuery({
-    queryKey: ['materials'],
-    queryFn: () => base44.entities.Material.list()
+  const { data: inventoryItems = [] } = useQuery({
+    queryKey: ['inventoryItems'],
+    queryFn: () => base44.entities.InventoryItem.list()
   });
 
   const { data: allocations = [] } = useQuery({
@@ -200,28 +195,15 @@ export default function Dashboard() {
     }
   });
 
-  // Check accessories
-  accessories.forEach((acc) => {
-    if (acc.min_stock_level_units && acc.quantity_on_hand < acc.min_stock_level_units) {
+  // Check inventory items
+  inventoryItems.forEach((item) => {
+    if (item.min_stock_level_units && item.quantity_on_hand < item.min_stock_level_units) {
       lowInventory.push({
-        type: 'Accessory',
-        name: acc.item_name,
-        current: acc.quantity_on_hand || 0,
-        minimum: acc.min_stock_level_units,
-        unit: acc.unit_of_measure || 'units'
-      });
-    }
-  });
-
-  // Check materials
-  materials.forEach((mat) => {
-    if (mat.min_stock_level_units && mat.quantity_on_hand < mat.min_stock_level_units) {
-      lowInventory.push({
-        type: 'Material',
-        name: mat.item_name,
-        current: mat.quantity_on_hand || 0,
-        minimum: mat.min_stock_level_units,
-        unit: mat.unit_of_measure || 'units'
+        type: item.category,
+        name: item.item_name,
+        current: item.quantity_on_hand || 0,
+        minimum: item.min_stock_level_units,
+        unit: item.unit_of_measure || 'units'
       });
     }
   });

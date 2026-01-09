@@ -15,6 +15,7 @@ import Settings from './pages/Settings';
 import Transactions from './pages/Transactions';
 import TurfOverageReport from './pages/TurfOverageReport';
 import ArchivedJobs from './pages/ArchivedJobs';
+import InventoryItems from './pages/InventoryItems';
 import __Layout from './Layout.jsx';
 
 
@@ -36,6 +37,7 @@ export const PAGES = {
     "Transactions": Transactions,
     "TurfOverageReport": TurfOverageReport,
     "ArchivedJobs": ArchivedJobs,
+    "InventoryItems": InventoryItems,
 }
 
 export const pagesConfig = {

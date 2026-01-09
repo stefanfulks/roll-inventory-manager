@@ -49,8 +49,7 @@ const navItems = [
 
 const adminItems = [
   { name: 'Turf', page: 'Products', icon: Package },
-  { name: 'Accessories', page: 'Accessories', icon: Package },
-  { name: 'Materials', page: 'Materials', icon: Package },
+  { name: 'Other Inventory', page: 'InventoryItems', icon: Package },
   { name: 'Locations', page: 'Locations', icon: MapPin },
   { name: 'Transactions', page: 'Transactions', icon: FileSpreadsheet },
   { name: 'Turf Overage', page: 'TurfOverageReport', icon: FileBarChart },
