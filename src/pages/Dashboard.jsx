@@ -302,7 +302,6 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Dashboard</h1>
-          <p className="text-slate-500 mt-1">TexasTurf inventory overview and analytics</p>
         </div>
         <Button variant="outline" onClick={() => setShowCustomizer(true)}>
           <SettingsIcon className="h-4 w-4 mr-2" />
