@@ -486,7 +486,7 @@ export default function Receive() {
                       <Label>Width (ft) *</Label>
                       <Input 
                         type="number"
-                        value={singleForm.width_ft}
+                        value={singleForm.width_ft === 0 || singleForm.width_ft === '' ? '' : singleForm.width_ft}
                         disabled
                         placeholder="Auto-set"
                       />
@@ -495,7 +495,7 @@ export default function Receive() {
                       <Label>Length (ft) *</Label>
                       <Input 
                         type="number"
-                        value={singleForm.length_ft}
+                        value={singleForm.length_ft === 0 || singleForm.length_ft === '' ? '' : singleForm.length_ft}
                         onChange={e => setSingleForm(p => ({ ...p, length_ft: e.target.value }))}
                       />
                     </div>
@@ -608,7 +608,7 @@ export default function Receive() {
                       <Label>Width (ft) *</Label>
                       <Input 
                         type="number"
-                        value={rapidForm.width_ft}
+                        value={rapidForm.width_ft === 0 || rapidForm.width_ft === '' ? '' : rapidForm.width_ft}
                         disabled
                         placeholder="Auto-set"
                       />
@@ -617,7 +617,7 @@ export default function Receive() {
                       <Label>Length (ft) *</Label>
                       <Input 
                         type="number"
-                        value={rapidForm.length_ft}
+                        value={rapidForm.length_ft === 0 || rapidForm.length_ft === '' ? '' : rapidForm.length_ft}
                         onChange={e => setRapidForm(p => ({ ...p, length_ft: e.target.value }))}
                       />
                     </div>
@@ -626,8 +626,8 @@ export default function Receive() {
                       <Input 
                         type="number"
                         min="1"
-                        value={rapidForm.quantity}
-                        onChange={e => setRapidForm(p => ({ ...p, quantity: parseInt(e.target.value) || 1 }))}
+                        value={rapidForm.quantity === 0 ? '' : rapidForm.quantity}
+                        onChange={e => setRapidForm(p => ({ ...p, quantity: e.target.value === '' ? '' : parseInt(e.target.value) }))}
                       />
                     </div>
                   </div>
