@@ -7,10 +7,14 @@ import {
   Plus, 
   Eye,
   Edit,
-  ChevronDown
+  ChevronDown,
+  Trash2,
+  Archive,
+  Search
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -53,9 +57,11 @@ export default function Jobs() {
   const queryClient = useQueryClient();
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
+  const [selectedJobs, setSelectedJobs] = useState([]);
   
   const [newJob, setNewJob] = useState({
     job_number: '',
@@ -116,9 +122,44 @@ export default function Jobs() {
     }
   });
 
+  const deleteJobsMutation = useMutation({
+    mutationFn: async (jobIds) => {
+      for (const id of jobIds) {
+        await base44.entities.Job.delete(id);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      setSelectedJobs([]);
+      toast.success('Jobs deleted');
+    }
+  });
+
+  const archiveJobsMutation = useMutation({
+    mutationFn: async (jobIds) => {
+      for (const id of jobIds) {
+        await base44.entities.Job.update(id, { status: 'Archived' });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      setSelectedJobs([]);
+      toast.success('Jobs archived');
+    }
+  });
+
   const filteredJobs = jobs.filter(job => {
     if (ownerFilter !== 'all' && job.fulfillment_for !== ownerFilter) return false;
+    if (statusFilter === 'all' && job.status === 'Archived') return false;
     if (statusFilter !== 'all' && job.status !== statusFilter) return false;
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      return (
+        job.job_number?.toLowerCase().includes(search) ||
+        job.customer_name?.toLowerCase().includes(search) ||
+        job.job_address?.toLowerCase().includes(search)
+      );
+    }
     return true;
   });
 
@@ -153,6 +194,32 @@ export default function Jobs() {
     updateJobMutation.mutate({ id: editingJob.id, data: editJob });
   };
 
+  const handleSelectAll = (checked) => {
+    if (checked) {
+      setSelectedJobs(filteredJobs.map(j => j.id));
+    } else {
+      setSelectedJobs([]);
+    }
+  };
+
+  const handleSelectJob = (jobId, checked) => {
+    if (checked) {
+      setSelectedJobs(prev => [...prev, jobId]);
+    } else {
+      setSelectedJobs(prev => prev.filter(id => id !== jobId));
+    }
+  };
+
+  const handleBulkDelete = () => {
+    if (!confirm(`Delete ${selectedJobs.length} jobs? This cannot be undone.`)) return;
+    deleteJobsMutation.mutate(selectedJobs);
+  };
+
+  const handleBulkArchive = () => {
+    if (!confirm(`Archive ${selectedJobs.length} jobs?`)) return;
+    archiveJobsMutation.mutate(selectedJobs);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -163,6 +230,26 @@ export default function Jobs() {
         </div>
         <div className="flex items-center gap-2">
           <OwnerFilter value={ownerFilter} onChange={setOwnerFilter} />
+          {selectedJobs.length > 0 && (
+            <>
+              <Button 
+                variant="outline" 
+                onClick={handleBulkArchive}
+                disabled={archiveJobsMutation.isPending}
+              >
+                <Archive className="h-4 w-4 mr-2" />
+                Archive ({selectedJobs.length})
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={handleBulkDelete}
+                disabled={deleteJobsMutation.isPending}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete ({selectedJobs.length})
+              </Button>
+            </>
+          )}
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
               <Button className="bg-[#87c71a] hover:bg-[#6fa615] text-black font-medium">
@@ -266,8 +353,17 @@ export default function Jobs() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-3">
+      {/* Filters & Search */}
+      <div className="flex gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            placeholder="Search job number, customer, address..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="pl-9 dark:bg-[#2d2d2d] dark:border-slate-700 dark:text-white"
+          />
+        </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[140px] dark:bg-[#2d2d2d] dark:border-slate-700 dark:text-white">
             <SelectValue placeholder="Status" />
@@ -279,6 +375,7 @@ export default function Jobs() {
             <SelectItem value="SentOut">Sent Out</SelectItem>
             <SelectItem value="AwaitingReturnInventory">Awaiting Return</SelectItem>
             <SelectItem value="Completed">Completed</SelectItem>
+            <SelectItem value="Archived">Archived</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -296,6 +393,12 @@ export default function Jobs() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 dark:bg-slate-800/50 border-b dark:border-slate-700/50">
+                  <TableHead className="w-12">
+                    <Checkbox 
+                      checked={selectedJobs.length === filteredJobs.length && filteredJobs.length > 0}
+                      onCheckedChange={handleSelectAll}
+                    />
+                  </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Job Number</TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Company</TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Customer</TableHead>
@@ -307,7 +410,7 @@ export default function Jobs() {
               <TableBody>
                 {filteredJobs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12 text-slate-500 dark:text-slate-400">
+                    <TableCell colSpan={7} className="text-center py-12 text-slate-500 dark:text-slate-400">
                       No jobs found
                     </TableCell>
                   </TableRow>
@@ -315,8 +418,15 @@ export default function Jobs() {
                   filteredJobs.map((job) => (
                     <TableRow 
                       key={job.id} 
-                      className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors border-b dark:border-slate-700/30"
+                      className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors border-b dark:border-slate-700/30 cursor-pointer"
+                      onClick={() => window.location.href = createPageUrl(`JobDetail?id=${job.id}`)}
                     >
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox 
+                          checked={selectedJobs.includes(job.id)}
+                          onCheckedChange={(checked) => handleSelectJob(job.id, checked)}
+                        />
+                      </TableCell>
                       <TableCell className="font-medium dark:text-white">{job.job_number}</TableCell>
                       <TableCell>
                         <OwnerBadge owner={job.fulfillment_for} size="sm" />
@@ -326,7 +436,7 @@ export default function Jobs() {
                       <TableCell className="text-slate-500 dark:text-slate-400">
                         {format(new Date(job.created_date), 'MMM d')}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm" className="dark:hover:bg-slate-700/50">

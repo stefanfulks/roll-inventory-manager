@@ -22,7 +22,9 @@ import {
   FileBarChart,
   HelpCircle,
   Moon,
-  Sun
+  Sun,
+  Search,
+  Archive
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -33,6 +35,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import GlobalSearch from '@/components/GlobalSearch';
 
 const navItems = [
   { name: 'Dashboard', page: 'Dashboard', icon: LayoutDashboard },
@@ -51,6 +54,7 @@ const adminItems = [
   { name: 'Locations', page: 'Locations', icon: MapPin },
   { name: 'Transactions', page: 'Transactions', icon: FileSpreadsheet },
   { name: 'Turf Overage', page: 'TurfOverageReport', icon: FileBarChart },
+  { name: 'Archived Jobs', page: 'ArchivedJobs', icon: Archive },
   { name: 'Settings', page: 'Settings', icon: Settings },
   { name: 'Reports', page: 'Reports', icon: FileBarChart },
   { name: 'Help', page: 'Help', icon: HelpCircle },
@@ -60,6 +64,7 @@ export default function Layout({ children, currentPageName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [theme, setTheme] = useState('dark');
+  const [showSearch, setShowSearch] = useState(false);
   const location = useLocation();
 
   useEffect(() => {
@@ -76,6 +81,15 @@ export default function Layout({ children, currentPageName }) {
     const savedTheme = localStorage.getItem('theme') || 'dark';
     setTheme(savedTheme);
     document.documentElement.classList.toggle('dark', savedTheme === 'dark');
+
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const toggleTheme = () => {
@@ -168,6 +182,15 @@ export default function Layout({ children, currentPageName }) {
 
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+            <button
+              onClick={() => setShowSearch(true)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+            >
+              <Search className="h-4 w-4" />
+              <span className="text-sm">Search...</span>
+              <span className="ml-auto text-xs bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded">⌘K</span>
+            </button>
+            
             <div className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 px-3">
               Main Menu
             </div>
@@ -269,6 +292,9 @@ export default function Layout({ children, currentPageName }) {
           {children}
         </div>
       </main>
+
+      {/* Global Search */}
+      <GlobalSearch open={showSearch} onOpenChange={setShowSearch} />
     </div>
   );
 }
