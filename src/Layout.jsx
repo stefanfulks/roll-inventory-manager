@@ -128,7 +128,7 @@ export default function Layout({ children, currentPageName }) {
           <div className="w-8 h-8 bg-gradient-to-br from-[#87c71a] to-[#6fa615] rounded-lg flex items-center justify-center shadow-lg shadow-[#87c71a]/20">
             <span className="text-black font-bold text-sm">TT</span>
           </div>
-          <span className="font-semibold text-slate-800 dark:text-white">TurfTracker</span>
+          <span className="font-semibold text-slate-800 dark:text-white">TexasTurf</span>
         </div>
         <div className="w-10" />
       </div>
@@ -156,8 +156,8 @@ export default function Layout({ children, currentPageName }) {
                 <span className="text-black font-bold">TT</span>
               </div>
               <div>
-                <h1 className="font-bold text-slate-800 dark:text-white text-lg leading-tight">TurfTracker</h1>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Inventory System</p>
+                <h1 className="font-bold text-slate-800 dark:text-white text-lg leading-tight">TexasTurf</h1>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Inventory Tracker</p>
               </div>
             </div>
             <Button 
