@@ -39,6 +39,9 @@ export default function Dashboard() {
   const [slackChannel, setSlackChannel] = useState('');
   const [sendingSlack, setSendingSlack] = useState(false);
   const [showCustomizer, setShowCustomizer] = useState(false);
+  const [showTotalRollsDetail, setShowTotalRollsDetail] = useState(false);
+  const [showSqFtDetail, setShowSqFtDetail] = useState(false);
+  const [showSittingInventoryDetail, setShowSittingInventoryDetail] = useState(false);
   const [visibleCharts, setVisibleCharts] = useState([
   'status_distribution', 'shipped_total', 'top_turf', 'length_distribution',
   'roll_type', 'full_vs_partial_count', 'full_vs_partial_sqft']
@@ -311,21 +314,25 @@ export default function Dashboard() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Rolls"
-          value={totalRolls.toLocaleString()}
-          subtitle={`${parentRolls.length} parent, ${childRolls.length} child`}
-          icon={Package}
-          iconBg="bg-emerald-100"
-          iconColor="text-emerald-600" />
+        <div onClick={() => setShowTotalRollsDetail(true)} className="cursor-pointer hover:opacity-80 transition-opacity">
+          <StatCard
+            title="Total Rolls"
+            value={totalRolls.toLocaleString()}
+            subtitle={`${parentRolls.length} parent, ${childRolls.length} child`}
+            icon={Package}
+            iconBg="bg-emerald-100"
+            iconColor="text-emerald-600" />
+        </div>
 
-        <StatCard
-          title="Total Sq Ft in Stock"
-          value={totalSqft.toLocaleString()}
-          subtitle={`${availableRolls.length} available rolls`}
-          icon={Ruler}
-          iconBg="bg-blue-100"
-          iconColor="text-blue-600" />
+        <div onClick={() => setShowSqFtDetail(true)} className="cursor-pointer hover:opacity-80 transition-opacity">
+          <StatCard
+            title="Total Sq Ft in Stock"
+            value={totalSqft.toLocaleString()}
+            subtitle={`${availableRolls.length} available rolls`}
+            icon={Ruler}
+            iconBg="bg-blue-100"
+            iconColor="text-blue-600" />
+        </div>
 
         <div
           onClick={() => lowInventory.length > 0 && setShowLowInventory(true)}
@@ -340,13 +347,18 @@ export default function Dashboard() {
             iconColor={lowInventory.length > 0 ? "text-amber-600" : "text-slate-400"} />
 
         </div>
-        <StatCard
-          title="Sitting Inventory"
-          value={sittingRolls.length}
-          subtitle={`Over ${longSittingDays} days old`}
-          icon={Clock}
-          iconBg={sittingRolls.length > 0 ? "bg-orange-100" : "bg-slate-100"}
-          iconColor={sittingRolls.length > 0 ? "text-orange-600" : "text-slate-400"} />
+
+        <div 
+          onClick={() => sittingRolls.length > 0 && setShowSittingInventoryDetail(true)} 
+          className={sittingRolls.length > 0 ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}>
+          <StatCard
+            title="Sitting Inventory"
+            value={sittingRolls.length}
+            subtitle={`Over ${longSittingDays} days old`}
+            icon={Clock}
+            iconBg={sittingRolls.length > 0 ? "bg-orange-100" : "bg-slate-100"}
+            iconColor={sittingRolls.length > 0 ? "text-orange-600" : "text-slate-400"} />
+        </div>
 
       </div>
 
@@ -544,6 +556,164 @@ export default function Dashboard() {
         visibleCharts={visibleCharts}
         onSave={handleSavePreferences} />
 
+
+      {/* Total Rolls Detail Dialog */}
+      <Dialog open={showTotalRollsDetail} onOpenChange={setShowTotalRollsDetail}>
+        <DialogContent className="max-w-5xl max-h-[80vh] overflow-y-auto dark:bg-[#2d2d2d] dark:border-slate-700/50">
+          <DialogHeader>
+            <DialogTitle className="dark:text-white">Total Rolls - {totalRolls.toLocaleString()}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
+                <p className="text-sm text-slate-600 dark:text-slate-400">Parent Rolls</p>
+                <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{parentRolls.length}</p>
+              </div>
+              <div className="p-4 bg-violet-50 dark:bg-violet-900/20 rounded-lg">
+                <p className="text-sm text-slate-600 dark:text-slate-400">Child Rolls</p>
+                <p className="text-2xl font-bold text-violet-600 dark:text-violet-400">{childRolls.length}</p>
+              </div>
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <p className="text-sm text-slate-600 dark:text-slate-400">Available</p>
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{availableRolls.length}</p>
+              </div>
+            </div>
+            <div className="overflow-x-auto border dark:border-slate-700 rounded-lg">
+              <table className="w-full">
+                <thead className="bg-slate-50 dark:bg-slate-800/50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">TT SKU #</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Product</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Type</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Status</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Length</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Location</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y dark:divide-slate-700">
+                  {filteredRolls.map((roll) => (
+                    <tr key={roll.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                      <td className="px-4 py-2 text-sm font-mono dark:text-white">{roll.tt_sku_tag_number || roll.roll_tag}</td>
+                      <td className="px-4 py-2 text-sm dark:text-white">
+                        <Link to={createPageUrl(`RollDetail?id=${roll.id}`)} className="hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline">
+                          {roll.product_name}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2 text-sm"><StatusBadge status={roll.roll_type} size="sm" /></td>
+                      <td className="px-4 py-2 text-sm"><StatusBadge status={roll.status} size="sm" /></td>
+                      <td className="px-4 py-2 text-sm dark:text-white">{roll.current_length_ft}ft</td>
+                      <td className="px-4 py-2 text-sm dark:text-slate-300">{roll.location_bin && roll.location_row ? `${roll.location_bin}-${roll.location_row}` : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Total Sq Ft Detail Dialog */}
+      <Dialog open={showSqFtDetail} onOpenChange={setShowSqFtDetail}>
+        <DialogContent className="max-w-5xl max-h-[80vh] overflow-y-auto dark:bg-[#2d2d2d] dark:border-slate-700/50">
+          <DialogHeader>
+            <DialogTitle className="dark:text-white">Total Square Footage - {totalSqft.toLocaleString()} sq ft</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">Breakdown by Product</p>
+              <div className="space-y-2">
+                {Object.entries(availableRolls.reduce((acc, r) => {
+                  if (!acc[r.product_name]) acc[r.product_name] = 0;
+                  acc[r.product_name] += r.current_length_ft * r.width_ft;
+                  return acc;
+                }, {})).sort((a, b) => b[1] - a[1]).map(([product, sqft]) => (
+                  <div key={product} className="flex justify-between items-center">
+                    <span className="font-medium dark:text-white">{product}</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-bold">{Math.round(sqft).toLocaleString()} sq ft</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="overflow-x-auto border dark:border-slate-700 rounded-lg">
+              <table className="w-full">
+                <thead className="bg-slate-50 dark:bg-slate-800/50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">TT SKU #</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Product</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Width</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Length</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Sq Ft</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Location</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y dark:divide-slate-700">
+                  {availableRolls.map((roll) => (
+                    <tr key={roll.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                      <td className="px-4 py-2 text-sm font-mono dark:text-white">{roll.tt_sku_tag_number || roll.roll_tag}</td>
+                      <td className="px-4 py-2 text-sm dark:text-white">
+                        <Link to={createPageUrl(`RollDetail?id=${roll.id}`)} className="hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline">
+                          {roll.product_name}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2 text-sm dark:text-white">{roll.width_ft}ft</td>
+                      <td className="px-4 py-2 text-sm dark:text-white">{roll.current_length_ft}ft</td>
+                      <td className="px-4 py-2 text-sm font-bold text-blue-600 dark:text-blue-400">{Math.round(roll.current_length_ft * roll.width_ft).toLocaleString()} sq ft</td>
+                      <td className="px-4 py-2 text-sm dark:text-slate-300">{roll.location_bin && roll.location_row ? `${roll.location_bin}-${roll.location_row}` : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sitting Inventory Detail Dialog */}
+      <Dialog open={showSittingInventoryDetail} onOpenChange={setShowSittingInventoryDetail}>
+        <DialogContent className="max-w-5xl max-h-[80vh] overflow-y-auto dark:bg-[#2d2d2d] dark:border-slate-700/50">
+          <DialogHeader>
+            <DialogTitle className="dark:text-white">Sitting Inventory - {sittingRolls.length} rolls over {longSittingDays} days</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">These rolls have been in inventory for more than {longSittingDays} days</p>
+            </div>
+            <div className="overflow-x-auto border dark:border-slate-700 rounded-lg">
+              <table className="w-full">
+                <thead className="bg-slate-50 dark:bg-slate-800/50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">TT SKU #</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Product</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Date Received</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Days Old</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Length</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold dark:text-slate-300">Location</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y dark:divide-slate-700">
+                  {sittingRolls.map((roll) => {
+                    const daysOld = Math.floor((today - new Date(roll.date_received)) / (1000 * 60 * 60 * 24));
+                    return (
+                      <tr key={roll.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                        <td className="px-4 py-2 text-sm font-mono dark:text-white">{roll.tt_sku_tag_number || roll.roll_tag}</td>
+                        <td className="px-4 py-2 text-sm dark:text-white">
+                          <Link to={createPageUrl(`RollDetail?id=${roll.id}`)} className="hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline">
+                            {roll.product_name}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-2 text-sm dark:text-slate-300">{format(new Date(roll.date_received), 'MMM d, yyyy')}</td>
+                        <td className="px-4 py-2 text-sm font-bold text-orange-600 dark:text-orange-400">{daysOld} days</td>
+                        <td className="px-4 py-2 text-sm dark:text-white">{roll.current_length_ft}ft</td>
+                        <td className="px-4 py-2 text-sm dark:text-slate-300">{roll.location_bin && roll.location_row ? `${roll.location_bin}-${roll.location_row}` : '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Low Inventory Dialog */}
       <Dialog open={showLowInventory} onOpenChange={setShowLowInventory}>
