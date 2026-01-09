@@ -47,7 +47,6 @@ export default function Locations() {
   
   const [formData, setFormData] = useState({
     name: '',
-    type: 'warehouse',
     designated_for: 'all',
     notes: ''
   });
@@ -95,7 +94,6 @@ export default function Locations() {
       setEditingLocation(location);
       setFormData({
         name: location.name,
-        type: location.type,
         designated_for: location.designated_for || 'all',
         notes: location.notes || ''
       });
@@ -103,7 +101,6 @@ export default function Locations() {
       setEditingLocation(null);
       setFormData({
         name: '',
-        type: 'warehouse',
         designated_for: 'all',
         notes: ''
       });
@@ -203,24 +200,6 @@ export default function Locations() {
                 {editingLocation && (
                   <>
                     <div className="space-y-2">
-                      <Label>Type</Label>
-                      <Select 
-                        value={formData.type} 
-                        onValueChange={v => setFormData(p => ({ ...p, type: v }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="warehouse">Warehouse</SelectItem>
-                          <SelectItem value="truck">Truck</SelectItem>
-                          <SelectItem value="staging">Staging</SelectItem>
-                          <SelectItem value="returns">Returns</SelectItem>
-                        </SelectContent>
-                        </Select>
-                        </div>
-
-                        <div className="space-y-2">
                         <Label>Designated For</Label>
                         <Select 
                         value={formData.designated_for} 
@@ -291,7 +270,6 @@ export default function Locations() {
                   </TableHead>
                   <TableHead className="w-12 dark:text-slate-300"></TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Location Name</TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Type</TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Designated For</TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Notes</TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Actions</TableHead>
@@ -303,7 +281,7 @@ export default function Locations() {
                     <TableBody {...provided.droppableProps} ref={provided.innerRef}>
                       {locations.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center py-12 text-slate-500 dark:text-slate-400">
+                          <TableCell colSpan={6} className="text-center py-12 text-slate-500 dark:text-slate-400">
                             No locations yet
                           </TableCell>
                         </TableRow>
@@ -338,11 +316,6 @@ export default function Locations() {
                                     <MapPin className="h-4 w-4 text-slate-400" />
                                     <span className="font-medium dark:text-white">{location.name}</span>
                                   </div>
-                                </TableCell>
-                                <TableCell>
-                                  <span className={`inline-flex items-center px-3 py-1 text-sm font-medium rounded-full ${typeColors[location.type]}`}>
-                                    {location.type}
-                                  </span>
                                 </TableCell>
                                 <TableCell>
                                   <span className="text-sm dark:text-slate-300">
