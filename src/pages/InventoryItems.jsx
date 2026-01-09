@@ -410,7 +410,11 @@ export default function InventoryItems() {
                 filteredItems.map((item) => {
                   const isLowStock = item.min_stock_level_units && item.quantity_on_hand < item.min_stock_level_units;
                   return (
-                    <TableRow key={item.id} className={isLowStock ? 'bg-amber-50 dark:bg-amber-900/10' : ''}>
+                    <TableRow 
+                      key={item.id} 
+                      className={`cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors ${isLowStock ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}
+                      onClick={() => handleEdit(item)}
+                    >
                       <TableCell className="font-medium dark:text-white">{item.item_name}</TableCell>
                       <TableCell className="dark:text-slate-300">{item.sku || '-'}</TableCell>
                       <TableCell className="text-sm dark:text-slate-300">{item.category}</TableCell>
@@ -420,7 +424,7 @@ export default function InventoryItems() {
                         {item.quantity_on_hand || 0}
                       </TableCell>
                       <TableCell className="dark:text-slate-300">{item.min_stock_level_units || '-'}</TableCell>
-                      <TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <div className="flex gap-2">
                           <Button
                             variant="ghost"

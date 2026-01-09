@@ -597,10 +597,56 @@ export default function JobDetail() {
         </Card>
       </div>
 
+      {/* Returned Other Items */}
+      {returnTransactions.filter(t => !t.roll_id && t.product_name).length > 0 && (
+        <Card className="rounded-2xl border-slate-100 shadow-sm overflow-hidden dark:bg-[#2d2d2d]">
+          <CardHeader>
+            <CardTitle className="text-lg dark:text-white">Returned Other Items</CardTitle>
+          </CardHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 dark:bg-slate-800/50">
+                  <TableHead className="dark:text-slate-300">Item Name</TableHead>
+                  <TableHead className="dark:text-slate-300">Returned Quantity</TableHead>
+                  <TableHead className="dark:text-slate-300">Status</TableHead>
+                  <TableHead className="dark:text-slate-300">Notes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {returnTransactions
+                  .filter(t => !t.roll_id && t.product_name)
+                  .map((transaction) => {
+                    const isAddedToInventory = transaction.notes?.includes('Added to inventory');
+                    return (
+                      <TableRow key={transaction.id} className="dark:hover:bg-slate-800/30">
+                        <TableCell className="font-medium dark:text-white">{transaction.product_name}</TableCell>
+                        <TableCell className="dark:text-slate-300">
+                          {transaction.notes?.match(/Returned (\S+)/)?.[1] || '-'}
+                        </TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center px-3 py-1 text-sm font-medium rounded-full ${
+                            isAddedToInventory 
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                              : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                          }`}>
+                            {isAddedToInventory ? 'Added to Inventory' : 'Not Added (Used/Opened)'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-slate-600 dark:text-slate-400 text-sm">{transaction.notes}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      )}
+
       {/* Allocations */}
-      <Card className="rounded-2xl border-slate-100 shadow-sm overflow-hidden">
+      <Card className="rounded-2xl border-slate-100 shadow-sm overflow-hidden dark:bg-[#2d2d2d]">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg">Allocations</CardTitle>
+          <CardTitle className="text-lg dark:text-white">Allocations</CardTitle>
           <Dialog open={showAddProducts} onOpenChange={setShowAddProducts}>
             <DialogTrigger asChild>
               <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700">
