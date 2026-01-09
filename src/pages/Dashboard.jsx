@@ -3,18 +3,18 @@ import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { 
-  Package, 
-  Ruler, 
-  DollarSign, 
+import {
+  Package,
+  Ruler,
+  DollarSign,
   TrendingUp,
   Scissors,
   Truck,
   Clock,
   AlertTriangle,
   Send,
-  Settings as SettingsIcon
-} from 'lucide-react';
+  Settings as SettingsIcon } from
+'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,8 +27,8 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  DialogTitle } from
+"@/components/ui/dialog";
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
@@ -40,55 +40,55 @@ export default function Dashboard() {
   const [sendingSlack, setSendingSlack] = useState(false);
   const [showCustomizer, setShowCustomizer] = useState(false);
   const [visibleCharts, setVisibleCharts] = useState([
-    'status_distribution', 'shipped_total', 'top_turf', 'length_distribution',
-    'roll_type', 'full_vs_partial_count', 'full_vs_partial_sqft'
-  ]);
+  'status_distribution', 'shipped_total', 'top_turf', 'length_distribution',
+  'roll_type', 'full_vs_partial_count', 'full_vs_partial_sqft']
+  );
 
   const { data: rolls = [], isLoading: loadingRolls } = useQuery({
     queryKey: ['rolls'],
-    queryFn: () => base44.entities.Roll.list('-created_date', 1000),
+    queryFn: () => base44.entities.Roll.list('-created_date', 1000)
   });
 
   const { data: transactions = [], isLoading: loadingTx } = useQuery({
     queryKey: ['transactions'],
-    queryFn: () => base44.entities.Transaction.list('-created_date', 1000),
+    queryFn: () => base44.entities.Transaction.list('-created_date', 1000)
   });
 
   const { data: products = [] } = useQuery({
     queryKey: ['products'],
-    queryFn: () => base44.entities.Product.list(),
+    queryFn: () => base44.entities.Product.list()
   });
 
   const { data: accessories = [] } = useQuery({
     queryKey: ['accessories'],
-    queryFn: () => base44.entities.Accessory.list(),
+    queryFn: () => base44.entities.Accessory.list()
   });
 
   const { data: materials = [] } = useQuery({
     queryKey: ['materials'],
-    queryFn: () => base44.entities.Material.list(),
+    queryFn: () => base44.entities.Material.list()
   });
 
   const { data: allocations = [] } = useQuery({
     queryKey: ['allocations'],
-    queryFn: () => base44.entities.Allocation.list(),
+    queryFn: () => base44.entities.Allocation.list()
   });
 
   const { data: settings = [] } = useQuery({
     queryKey: ['settings'],
-    queryFn: () => base44.entities.Settings.list(),
+    queryFn: () => base44.entities.Settings.list()
   });
 
   const { data: user } = useQuery({
     queryKey: ['user'],
-    queryFn: () => base44.auth.me(),
+    queryFn: () => base44.auth.me()
   });
 
   const { data: userPrefs } = useQuery({
     queryKey: ['userPreferences', user?.email],
     queryFn: () => base44.entities.UserPreferences.filter({ user_email: user.email }),
     enabled: !!user?.email,
-    select: (data) => data[0],
+    select: (data) => data[0]
   });
 
   const savePreferencesMutation = useMutation({
@@ -122,13 +122,13 @@ export default function Dashboard() {
   };
 
   const getSetting = (key, defaultValue) => {
-    const setting = settings.find(s => s.setting_key === key);
+    const setting = settings.find((s) => s.setting_key === key);
     return setting ? parseInt(setting.setting_value) : defaultValue;
   };
 
   const longSittingDays = getSetting('long_sitting_days', 180);
 
-  const filteredRolls = rolls.filter(r => r.inventory_owner === 'TexasTurf');
+  const filteredRolls = rolls.filter((r) => r.inventory_owner === 'TexasTurf');
 
   const handleSendLowStockAlert = async () => {
     if (!slackChannel.trim()) {
@@ -143,7 +143,7 @@ export default function Dashboard() {
 
     setSendingSlack(true);
     try {
-      const lowStockProducts = lowInventory.map(item => ({
+      const lowStockProducts = lowInventory.map((item) => ({
         product_name: item.name,
         current_stock: item.current,
         min_stock: item.minimum,
@@ -166,22 +166,22 @@ export default function Dashboard() {
   };
 
   // Calculate metrics
-  const availableRolls = filteredRolls.filter(r => r.status === 'Available');
+  const availableRolls = filteredRolls.filter((r) => r.status === 'Available');
   const totalRolls = filteredRolls.length;
-  const parentRolls = filteredRolls.filter(r => r.roll_type === 'Parent');
-  const childRolls = filteredRolls.filter(r => r.roll_type === 'Child');
-  
-  const totalSqft = availableRolls.reduce((sum, r) => sum + (r.current_length_ft * r.width_ft), 0);
-  
+  const parentRolls = filteredRolls.filter((r) => r.roll_type === 'Parent');
+  const childRolls = filteredRolls.filter((r) => r.roll_type === 'Child');
+
+  const totalSqft = availableRolls.reduce((sum, r) => sum + r.current_length_ft * r.width_ft, 0);
+
   // Calculate low inventory items
   const lowInventory = [];
-  
+
   // Check turf products
-  products.forEach(product => {
+  products.forEach((product) => {
     if (product.min_stock_level_ft) {
-      const productRolls = availableRolls.filter(r => r.product_id === product.id);
+      const productRolls = availableRolls.filter((r) => r.product_id === product.id);
       const totalFt = productRolls.reduce((sum, r) => sum + r.current_length_ft, 0);
-      
+
       if (totalFt < product.min_stock_level_ft) {
         lowInventory.push({
           type: 'Product',
@@ -196,7 +196,7 @@ export default function Dashboard() {
   });
 
   // Check accessories
-  accessories.forEach(acc => {
+  accessories.forEach((acc) => {
     if (acc.min_stock_level_units && acc.quantity_on_hand < acc.min_stock_level_units) {
       lowInventory.push({
         type: 'Accessory',
@@ -209,7 +209,7 @@ export default function Dashboard() {
   });
 
   // Check materials
-  materials.forEach(mat => {
+  materials.forEach((mat) => {
     if (mat.min_stock_level_units && mat.quantity_on_hand < mat.min_stock_level_units) {
       lowInventory.push({
         type: 'Material',
@@ -224,23 +224,23 @@ export default function Dashboard() {
   // Calculate sitting inventory
   const today = new Date();
   const cutoffDate = new Date(today.getTime() - longSittingDays * 24 * 60 * 60 * 1000);
-  const sittingRolls = availableRolls.filter(r => {
+  const sittingRolls = availableRolls.filter((r) => {
     if (!r.date_received) return false;
     const receivedDate = new Date(r.date_received);
     return receivedDate < cutoffDate;
   });
 
   // Calculate shipped out products (total sqft)
-  const shippedOutSqft = transactions
-    .filter(t => t.transaction_type === 'SendOutToJob' && t.fulfillment_for === 'TexasTurf')
-    .reduce((sum, t) => {
-      const sqft = Math.abs(t.length_change_ft || 0) * (t.width_ft || 0);
-      return sum + sqft;
-    }, 0);
+  const shippedOutSqft = transactions.
+  filter((t) => t.transaction_type === 'SendOutToJob' && t.fulfillment_for === 'TexasTurf').
+  reduce((sum, t) => {
+    const sqft = Math.abs(t.length_change_ft || 0) * (t.width_ft || 0);
+    return sum + sqft;
+  }, 0);
 
   // Calculate top products by number of jobs
   const productJobCount = {};
-  allocations.forEach(alloc => {
+  allocations.forEach((alloc) => {
     if (alloc.product_name) {
       if (!productJobCount[alloc.product_name]) {
         productJobCount[alloc.product_name] = new Set();
@@ -249,10 +249,10 @@ export default function Dashboard() {
     }
   });
 
-  const topProductsData = Object.entries(productJobCount)
-    .map(([name, jobSet]) => ({ name, value: jobSet.size }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 8);
+  const topProductsData = Object.entries(productJobCount).
+  map(([name, jobSet]) => ({ name, value: jobSet.size })).
+  sort((a, b) => b.value - a.value).
+  slice(0, 8);
 
   // Status distribution
   const statusData = Object.entries(
@@ -264,18 +264,18 @@ export default function Dashboard() {
 
   // Length buckets
   const lengthBuckets = [
-    { name: '0-10ft', min: 0, max: 10 },
-    { name: '10-25ft', min: 10, max: 25 },
-    { name: '25-50ft', min: 25, max: 50 },
-    { name: '50-75ft', min: 50, max: 75 },
-    { name: '75-100ft', min: 75, max: 100 },
-    { name: '100ft+', min: 100, max: 999 },
-  ];
+  { name: '0-10ft', min: 0, max: 10 },
+  { name: '10-25ft', min: 10, max: 25 },
+  { name: '25-50ft', min: 25, max: 50 },
+  { name: '50-75ft', min: 50, max: 75 },
+  { name: '75-100ft', min: 75, max: 100 },
+  { name: '100ft+', min: 100, max: 999 }];
 
-  const lengthData = lengthBuckets.map(bucket => ({
+
+  const lengthData = lengthBuckets.map((bucket) => ({
     name: bucket.name,
-    value: availableRolls.filter(r => 
-      r.current_length_ft >= bucket.min && r.current_length_ft < bucket.max
+    value: availableRolls.filter((r) =>
+    r.current_length_ft >= bucket.min && r.current_length_ft < bucket.max
     ).length
   }));
 
@@ -283,17 +283,17 @@ export default function Dashboard() {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map(i => (
-            <Skeleton key={i} className="h-32 rounded-2xl" />
-          ))}
+          {[1, 2, 3, 4].map((i) =>
+          <Skeleton key={i} className="h-32 rounded-2xl" />
+          )}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {[1, 2, 3, 4].map(i => (
-            <Skeleton key={i} className="h-80 rounded-2xl" />
-          ))}
+          {[1, 2, 3, 4].map((i) =>
+          <Skeleton key={i} className="h-80 rounded-2xl" />
+          )}
         </div>
-      </div>
-    );
+      </div>);
+
   }
 
   return (
@@ -301,7 +301,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Dashboard</h1>
+          <h1 className="text-slate-50 text-2xl font-bold lg:text-3xl">Dashboard</h1>
         </div>
         <Button variant="outline" onClick={() => setShowCustomizer(true)}>
           <SettingsIcon className="h-4 w-4 mr-2" />
@@ -317,28 +317,28 @@ export default function Dashboard() {
           subtitle={`${parentRolls.length} parent, ${childRolls.length} child`}
           icon={Package}
           iconBg="bg-emerald-100"
-          iconColor="text-emerald-600"
-        />
+          iconColor="text-emerald-600" />
+
         <StatCard
           title="Total Sq Ft in Stock"
           value={totalSqft.toLocaleString()}
           subtitle={`${availableRolls.length} available rolls`}
           icon={Ruler}
           iconBg="bg-blue-100"
-          iconColor="text-blue-600"
-        />
-        <div 
+          iconColor="text-blue-600" />
+
+        <div
           onClick={() => lowInventory.length > 0 && setShowLowInventory(true)}
-          className={lowInventory.length > 0 ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}
-        >
+          className={lowInventory.length > 0 ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}>
+
           <StatCard
             title="Low Inventory"
             value={lowInventory.length}
             subtitle="Items below minimum"
             icon={AlertTriangle}
             iconBg={lowInventory.length > 0 ? "bg-amber-100" : "bg-slate-100"}
-            iconColor={lowInventory.length > 0 ? "text-amber-600" : "text-slate-400"}
-          />
+            iconColor={lowInventory.length > 0 ? "text-amber-600" : "text-slate-400"} />
+
         </div>
         <StatCard
           title="Sitting Inventory"
@@ -346,14 +346,14 @@ export default function Dashboard() {
           subtitle={`Over ${longSittingDays} days old`}
           icon={Clock}
           iconBg={sittingRolls.length > 0 ? "bg-orange-100" : "bg-slate-100"}
-          iconColor={sittingRolls.length > 0 ? "text-orange-600" : "text-slate-400"}
-        />
+          iconColor={sittingRolls.length > 0 ? "text-orange-600" : "text-slate-400"} />
+
       </div>
 
       {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Status Distribution */}
-        {visibleCharts.includes('status_distribution') && (
+        {visibleCharts.includes('status_distribution') &&
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Inventory by Status</h3>
           <div className="h-64">
@@ -368,21 +368,21 @@ export default function Dashboard() {
                   paddingAngle={2}
                   dataKey="value"
                   label={({ name, value }) => `${name}: ${value}`}
-                  labelLine={false}
-                >
-                  {statusData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
+                  labelLine={false}>
+
+                  {statusData.map((entry, index) =>
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  )}
                 </Pie>
                 <Tooltip />
               </PieChart>
             </ResponsiveContainer>
           </div>
         </div>
-        )}
+        }
 
         {/* Shipped Out Tracking */}
-        {visibleCharts.includes('shipped_total') && (
+        {visibleCharts.includes('shipped_total') &&
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Total Shipped Out</h3>
           <div className="flex items-center justify-center h-64">
@@ -395,10 +395,10 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-        )}
+        }
 
         {/* Top Turf by Jobs */}
-        {visibleCharts.includes('top_turf') && (
+        {visibleCharts.includes('top_turf') &&
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Top Turf by Jobs</h3>
           <div className="h-64">
@@ -413,10 +413,10 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
-        )}
+        }
 
         {/* Length Distribution */}
-        {visibleCharts.includes('length_distribution') && (
+        {visibleCharts.includes('length_distribution') &&
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Remaining Length Buckets</h3>
           <div className="h-64">
@@ -431,10 +431,10 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
-        )}
+        }
 
         {/* Roll Type Distribution */}
-        {visibleCharts.includes('roll_type') && (
+        {visibleCharts.includes('roll_type') &&
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Parent vs Child Rolls</h3>
           <div className="h-64">
@@ -442,9 +442,9 @@ export default function Dashboard() {
               <PieChart>
                 <Pie
                   data={[
-                    { name: 'Parent Rolls', value: parentRolls.length },
-                    { name: 'Child Rolls', value: childRolls.length },
-                  ]}
+                  { name: 'Parent Rolls', value: parentRolls.length },
+                  { name: 'Child Rolls', value: childRolls.length }]
+                  }
                   cx="50%"
                   cy="50%"
                   innerRadius={50}
@@ -452,8 +452,8 @@ export default function Dashboard() {
                   paddingAngle={2}
                   dataKey="value"
                   label={({ name, value }) => `${name}: ${value}`}
-                  labelLine={false}
-                >
+                  labelLine={false}>
+
                   <Cell fill="#64748b" />
                   <Cell fill="#8b5cf6" />
                 </Pie>
@@ -463,15 +463,15 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
-        )}
+        }
 
         {/* Full vs Partial Rolls Count */}
-        {visibleCharts.includes('full_vs_partial_count') && (
+        {visibleCharts.includes('full_vs_partial_count') &&
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Full vs Partial Rolls by Turf</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart 
+              <BarChart
                 data={Object.entries(
                   availableRolls.reduce((acc, r) => {
                     if (!acc[r.product_name]) {
@@ -484,9 +484,9 @@ export default function Dashboard() {
                     }
                     return acc;
                   }, {})
-                ).map(([_, data]) => data).sort((a, b) => (b.full + b.partial) - (a.full + a.partial)).slice(0, 8)}
-                layout="vertical"
-              >
+                ).map(([_, data]) => data).sort((a, b) => b.full + b.partial - (a.full + a.partial)).slice(0, 8)}
+                layout="vertical">
+
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis type="number" tick={{ fontSize: 12 }} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
@@ -498,15 +498,15 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
-        )}
+        }
 
         {/* Full vs Partial Sq Ft */}
-        {visibleCharts.includes('full_vs_partial_sqft') && (
+        {visibleCharts.includes('full_vs_partial_sqft') &&
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Full vs Partial Sq Ft by Turf</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart 
+              <BarChart
                 data={Object.entries(
                   availableRolls.reduce((acc, r) => {
                     if (!acc[r.product_name]) {
@@ -520,9 +520,9 @@ export default function Dashboard() {
                     }
                     return acc;
                   }, {})
-                ).map(([_, data]) => ({ ...data, full: Math.round(data.full), partial: Math.round(data.partial) })).sort((a, b) => (b.full + b.partial) - (a.full + a.partial)).slice(0, 8)}
-                layout="vertical"
-              >
+                ).map(([_, data]) => ({ ...data, full: Math.round(data.full), partial: Math.round(data.partial) })).sort((a, b) => b.full + b.partial - (a.full + a.partial)).slice(0, 8)}
+                layout="vertical">
+
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis type="number" tick={{ fontSize: 12 }} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
@@ -534,7 +534,7 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
-        )}
+        }
       </div>
 
       {/* Dashboard Customizer */}
@@ -542,8 +542,8 @@ export default function Dashboard() {
         open={showCustomizer}
         onOpenChange={setShowCustomizer}
         visibleCharts={visibleCharts}
-        onSave={handleSavePreferences}
-      />
+        onSave={handleSavePreferences} />
+
 
       {/* Low Inventory Dialog */}
       <Dialog open={showLowInventory} onOpenChange={setShowLowInventory}>
@@ -563,13 +563,13 @@ export default function Dashboard() {
                     placeholder="Channel name (e.g., #inventory)"
                     value={slackChannel}
                     onChange={(e) => setSlackChannel(e.target.value)}
-                    className="flex-1"
-                  />
-                  <Button 
+                    className="flex-1" />
+
+                  <Button
                     onClick={handleSendLowStockAlert}
                     disabled={sendingSlack}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
+                    className="bg-blue-600 hover:bg-blue-700">
+
                     {sendingSlack ? 'Sending...' : 'Send Alert'}
                   </Button>
                 </div>
@@ -581,8 +581,8 @@ export default function Dashboard() {
           </div>
 
           <div className="space-y-4 mt-4">
-            {lowInventory.map((item, idx) => (
-              <div key={idx} className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            {lowInventory.map((item, idx) =>
+            <div key={idx} className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <div className="flex items-center gap-2">
@@ -597,27 +597,27 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
-                {item.rolls && item.rolls.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-amber-200">
+                {item.rolls && item.rolls.length > 0 &&
+              <div className="mt-3 pt-3 border-t border-amber-200">
                     <p className="text-xs font-medium text-slate-600 mb-2">Available Rolls:</p>
                     <div className="flex flex-wrap gap-2">
-                      {item.rolls.map(roll => (
-                        <Link
-                          key={roll.id}
-                          to={createPageUrl(`RollDetail?id=${roll.id}`)}
-                          className="text-xs px-2 py-1 bg-white border border-amber-300 rounded hover:bg-amber-100 transition-colors"
-                        >
+                      {item.rolls.map((roll) =>
+                  <Link
+                    key={roll.id}
+                    to={createPageUrl(`RollDetail?id=${roll.id}`)}
+                    className="text-xs px-2 py-1 bg-white border border-amber-300 rounded hover:bg-amber-100 transition-colors">
+
                           {roll.tt_sku_tag_number || roll.roll_tag} ({roll.current_length_ft}ft)
                         </Link>
-                      ))}
+                  )}
                     </div>
                   </div>
-                )}
+              }
               </div>
-            ))}
+            )}
           </div>
         </DialogContent>
       </Dialog>
-    </div>
-  );
+    </div>);
+
 }
