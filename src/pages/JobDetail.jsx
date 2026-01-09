@@ -421,6 +421,7 @@ export default function JobDetail() {
   
   const totalReturned = returnTransactions.reduce((sum, t) => sum + (t.length_change_ft || 0), 0);
   const totalUsed = totalAllocatedSentOut - totalReturned;
+  const turfVariance = totalUsed - (job.requested_total_turf_length_ft || 0);
 
   return (
     <div className="space-y-6">
@@ -555,7 +556,7 @@ export default function JobDetail() {
             <CardTitle className="text-lg">Allocation Summary</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div className="p-4 bg-slate-50 rounded-lg">
                 <p className="text-sm text-slate-500 mb-1">Requested (Job Form)</p>
                 <p className="text-2xl font-bold text-slate-800">
@@ -573,6 +574,12 @@ export default function JobDetail() {
               <div className="p-4 bg-emerald-50 rounded-lg">
                 <p className="text-sm text-slate-500 mb-1">Used (Turf Only)</p>
                 <p className="text-2xl font-bold text-emerald-600">{totalUsed} ft</p>
+              </div>
+              <div className={`p-4 rounded-lg ${turfVariance > 0 ? 'bg-red-50' : turfVariance < 0 ? 'bg-green-50' : 'bg-slate-50'}`}>
+                <p className="text-sm text-slate-500 mb-1">Variance</p>
+                <p className={`text-2xl font-bold ${turfVariance > 0 ? 'text-red-600' : turfVariance < 0 ? 'text-green-600' : 'text-slate-600'}`}>
+                  {turfVariance > 0 ? '+' : ''}{turfVariance} ft
+                </p>
               </div>
             </div>
           </CardContent>

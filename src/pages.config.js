@@ -15,6 +15,7 @@ import Returns from './pages/Returns';
 import RollDetail from './pages/RollDetail';
 import Settings from './pages/Settings';
 import Transactions from './pages/Transactions';
+import TurfOverageReport from './pages/TurfOverageReport';
 import __Layout from './Layout.jsx';
 
 
@@ -36,6 +37,7 @@ export const PAGES = {
     "RollDetail": RollDetail,
     "Settings": Settings,
     "Transactions": Transactions,
+    "TurfOverageReport": TurfOverageReport,
 }
 
 export const pagesConfig = {
