@@ -340,9 +340,9 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Top Products by Jobs */}
+        {/* Top Turf by Jobs */}
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Top Products by Jobs</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Top Turf by Jobs</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={topProductsData} layout="vertical">
@@ -404,7 +404,7 @@ export default function Dashboard() {
 
         {/* Full vs Partial Rolls Count */}
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Full vs Partial Rolls by Product</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Full vs Partial Rolls by Turf</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart 
@@ -437,7 +437,7 @@ export default function Dashboard() {
 
         {/* Full vs Partial Sq Ft */}
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Full vs Partial Sq Ft by Product</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Full vs Partial Sq Ft by Turf</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart 

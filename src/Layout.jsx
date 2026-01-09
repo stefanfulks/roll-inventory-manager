@@ -42,7 +42,7 @@ const navItems = [
 ];
 
 const adminItems = [
-  { name: 'Products', page: 'Products', icon: Package },
+  { name: 'Turf', page: 'Products', icon: Package },
   { name: 'Accessories', page: 'Accessories', icon: Package },
   { name: 'Materials', page: 'Materials', icon: Package },
   { name: 'Locations', page: 'Locations', icon: MapPin },

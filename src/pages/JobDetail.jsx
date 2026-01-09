@@ -175,6 +175,16 @@ export default function JobDetail() {
     }
   });
 
+  const reopenJobMutation = useMutation({
+    mutationFn: async () => {
+      await base44.entities.Job.update(jobId, { status: 'AwaitingReturnInventory' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job', jobId] });
+      toast.success('Job re-opened');
+    }
+  });
+
   const handleSendJobReport = async () => {
     if (!slackChannel.trim()) {
       toast.error('Please enter a Slack channel name');
@@ -236,8 +246,8 @@ export default function JobDetail() {
         }
       }
       
-      // Update job status
-      await base44.entities.Job.update(jobId, { status: 'AwaitingReturnInventory' });
+      // Update job status to Completed
+      await base44.entities.Job.update(jobId, { status: 'Completed' });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
@@ -477,6 +487,16 @@ export default function JobDetail() {
                 Complete Job
               </Button>
             </>
+          )}
+          {job.status === 'Completed' && (
+            <Button 
+              onClick={() => reopenJobMutation.mutate()}
+              disabled={reopenJobMutation.isPending}
+              variant="outline"
+              className="border-amber-600 text-amber-600 hover:bg-amber-50"
+            >
+              Re-open Job
+            </Button>
           )}
         </div>
       </div>
