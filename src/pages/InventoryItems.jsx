@@ -60,7 +60,6 @@ export default function InventoryItems() {
     unit_size_definition: '',
     quantity_on_hand: 0,
     min_stock_level_units: 0,
-    cost_per_unit: 0,
     notes: ''
   });
 
@@ -137,7 +136,6 @@ export default function InventoryItems() {
       unit_size_definition: item.unit_size_definition,
       quantity_on_hand: item.quantity_on_hand || 0,
       min_stock_level_units: item.min_stock_level_units || 0,
-      cost_per_unit: item.cost_per_unit || 0,
       notes: item.notes || ''
     });
     setShowDialog(true);
@@ -251,7 +249,7 @@ export default function InventoryItems() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="dark:text-slate-300">Quantity on Hand</Label>
                   <Input
@@ -269,16 +267,6 @@ export default function InventoryItems() {
                     step="0.01"
                     value={formData.min_stock_level_units}
                     onChange={(e) => setFormData({...formData, min_stock_level_units: parseFloat(e.target.value) || 0})}
-                    className="dark:bg-slate-800 dark:text-white dark:border-slate-700"
-                  />
-                </div>
-                <div>
-                  <Label className="dark:text-slate-300">Cost per Unit</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={formData.cost_per_unit}
-                    onChange={(e) => setFormData({...formData, cost_per_unit: parseFloat(e.target.value) || 0})}
                     className="dark:bg-slate-800 dark:text-white dark:border-slate-700"
                   />
                 </div>
