@@ -45,7 +45,7 @@ export default function Dashboard() {
   const [showSqFtDetail, setShowSqFtDetail] = useState(false);
   const [showSittingInventoryDetail, setShowSittingInventoryDetail] = useState(false);
   const [visibleCharts, setVisibleCharts] = useState([
-  'status_distribution', 'shipped_total', 'top_turf', 'length_distribution',
+  'turf_type_distribution', 'shipped_total', 'top_turf', 'length_distribution',
   'roll_type', 'full_vs_partial_count', 'full_vs_partial_sqft']
   );
 
@@ -257,13 +257,23 @@ export default function Dashboard() {
   sort((a, b) => b.value - a.value).
   slice(0, 8);
 
-  // Status distribution
-  const statusData = Object.entries(
-    filteredRolls.reduce((acc, r) => {
-      acc[r.status] = (acc[r.status] || 0) + 1;
-      return acc;
-    }, {})
-  ).map(([name, value]) => ({ name, value }));
+  // Inventory by Turf Type
+  const turfTypeDistribution = products.reduce((acc, product) => {
+    const rollCount = filteredRolls.filter(r => r.product_id === product.id).length;
+    const abbreviatedName = product.product_name
+      .split(' ')
+      .map(word => word[0])
+      .join('')
+      .toUpperCase();
+    acc.push({
+      name: abbreviatedName,
+      fullName: product.product_name,
+      value: rollCount
+    });
+    return acc;
+  }, []);
+
+  const turfTypeChartData = turfTypeDistribution.sort((a, b) => b.value - a.value);
 
   // Length buckets
   const lengthBuckets = [
@@ -364,30 +374,33 @@ export default function Dashboard() {
 
       {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Status Distribution */}
-        {visibleCharts.includes('status_distribution') &&
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Inventory by Status</h3>
+        {/* Inventory by Turf Type */}
+        {visibleCharts.includes('turf_type_distribution') &&
+        <div className="bg-white dark:bg-[#2d2d2d] rounded-2xl p-6 border border-slate-100 dark:border-slate-700/50 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-white mb-4">Inventory by Turf Type</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={statusData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={2}
-                  dataKey="value"
-                  label={({ name, value }) => `${name}: ${value}`}
-                  labelLine={false}>
-
-                  {statusData.map((entry, index) =>
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  )}
-                </Pie>
-                <Tooltip />
-              </PieChart>
+              <BarChart data={turfTypeChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#64748b" />
+                <Tooltip 
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
+                          <p className="font-medium dark:text-white">{payload[0].payload.fullName}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-300">
+                            Rolls: <span className="font-semibold">{payload[0].value}</span>
+                          </p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Bar dataKey="value" fill="#87c71a" radius={[8, 8, 0, 0]} />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
