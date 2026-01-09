@@ -10,7 +10,7 @@ export default function OwnerFilter({ value, onChange }) {
   ];
 
   return (
-    <div className="inline-flex items-center bg-slate-100 rounded-lg p-1">
+    <>
       {options.map((option) => (
         <Button
           key={option.value}
@@ -27,6 +27,6 @@ export default function OwnerFilter({ value, onChange }) {
           {option.label}
         </Button>
       ))}
-    </div>
+    </>
   );
 }
