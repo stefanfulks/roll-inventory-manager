@@ -101,7 +101,12 @@ export default function JobDetail() {
 
   const { data: locations = [] } = useQuery({
     queryKey: ['locations'],
-    queryFn: () => base44.entities.Location.list(),
+    queryFn: async () => {
+      const locs = await base44.entities.Location.list();
+      return locs
+        .filter(l => l.designated_for === 'all' || l.designated_for === 'turf_only')
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    },
   });
 
   const createAllocationMutation = useMutation({
