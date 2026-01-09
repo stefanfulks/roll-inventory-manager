@@ -65,10 +65,12 @@ export default function Inventory() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingRoll, setEditingRoll] = useState(null);
   const [editForm, setEditForm] = useState({
+    tt_sku_tag_number: '',
     manufacturer_roll_number: '',
     location_bin: '',
     location_row: '',
     dye_lot: '',
+    status: '',
     notes: ''
   });
 
@@ -142,10 +144,12 @@ export default function Inventory() {
   const handleEditRoll = (roll) => {
     setEditingRoll(roll);
     setEditForm({
+      tt_sku_tag_number: roll.tt_sku_tag_number || '',
       manufacturer_roll_number: roll.manufacturer_roll_number || '',
       location_bin: roll.location_bin || '',
       location_row: roll.location_row || '',
       dye_lot: roll.dye_lot || '',
+      status: roll.status || '',
       notes: roll.notes || ''
     });
     setShowEditDialog(true);
@@ -155,13 +159,14 @@ export default function Inventory() {
     if (!editingRoll) return;
     
     const updates = {};
+    if (editForm.tt_sku_tag_number) updates.tt_sku_tag_number = editForm.tt_sku_tag_number;
     if (editForm.manufacturer_roll_number) updates.manufacturer_roll_number = editForm.manufacturer_roll_number;
     if (editForm.location_bin && editForm.location_row) {
       updates.location_bin = editForm.location_bin;
       updates.location_row = editForm.location_row;
-      updates.status = 'Available';
     }
     if (editForm.dye_lot) updates.dye_lot = editForm.dye_lot;
+    if (editForm.status) updates.status = editForm.status;
     if (editForm.notes !== undefined) updates.notes = editForm.notes;
 
     await updateRollMutation.mutateAsync({ id: editingRoll.id, data: updates });
@@ -393,6 +398,15 @@ export default function Inventory() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
+              <Label>TT SKU Tag Number</Label>
+              <Input 
+                value={editForm.tt_sku_tag_number}
+                onChange={e => setEditForm(p => ({ ...p, tt_sku_tag_number: e.target.value }))}
+                placeholder="TT SKU tag number"
+                className="font-mono"
+              />
+            </div>
+            <div className="space-y-2">
               <Label>Manufacturer Roll Number</Label>
               <Input 
                 value={editForm.manufacturer_roll_number}
@@ -407,6 +421,24 @@ export default function Inventory() {
                 onChange={e => setEditForm(p => ({ ...p, dye_lot: e.target.value }))}
                 placeholder="Dye lot number"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select
+                value={editForm.status}
+                onValueChange={v => setEditForm(p => ({ ...p, status: v }))}
+              >
+                <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Available">Available</SelectItem>
+                  <SelectItem value="Reserved">Reserved</SelectItem>
+                  <SelectItem value="AwaitingLocation">Awaiting Location</SelectItem>
+                  <SelectItem value="Consumed">Consumed</SelectItem>
+                  <SelectItem value="SentOut">Sent Out</SelectItem>
+                  <SelectItem value="Scrapped">Scrapped</SelectItem>
+                  <SelectItem value="Damaged">Damaged</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

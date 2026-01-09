@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { 
@@ -12,18 +12,37 @@ import {
   Hash,
   Ruler,
   FileText,
-  Clock
+  Clock,
+  Briefcase
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from '@/components/ui/label';
 import StatusBadge from '@/components/ui/StatusBadge';
 import OwnerBadge from '@/components/ui/OwnerBadge';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 export default function RollDetail() {
+  const queryClient = useQueryClient();
   const params = new URLSearchParams(window.location.search);
   const rollId = params.get('id');
+  const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [selectedJobId, setSelectedJobId] = useState('');
 
   const { data: roll, isLoading } = useQuery({
     queryKey: ['roll', rollId],
@@ -49,6 +68,57 @@ export default function RollDetail() {
     queryFn: () => base44.entities.Roll.filter({ id: roll.parent_roll_id }),
     enabled: !!roll?.parent_roll_id,
     select: (data) => data[0],
+  });
+
+  const { data: jobs = [] } = useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => base44.entities.Job.filter({ status: 'Draft' }),
+  });
+
+  const assignToJobMutation = useMutation({
+    mutationFn: async (jobId) => {
+      const user = await base44.auth.me();
+      const job = jobs.find(j => j.id === jobId);
+      
+      // Create allocation
+      await base44.entities.Allocation.create({
+        job_id: jobId,
+        job_name: job.job_name || job.job_number,
+        product_id: roll.product_id,
+        product_name: roll.product_name,
+        width_ft: roll.width_ft,
+        dye_lot_preference: roll.dye_lot,
+        requested_length_ft: roll.current_length_ft,
+        allocated_roll_ids: [roll.id],
+        item_type: 'roll',
+        status: 'Planned'
+      });
+
+      // Update roll status
+      await base44.entities.Roll.update(roll.id, { status: 'Allocated' });
+
+      // Create transaction
+      await base44.entities.Transaction.create({
+        transaction_type: 'AssignToJob',
+        fulfillment_for: job.fulfillment_for,
+        roll_id: roll.id,
+        tt_sku_tag_number: roll.tt_sku_tag_number || roll.roll_tag,
+        job_id: jobId,
+        job_number: job.job_number,
+        product_name: roll.product_name,
+        dye_lot: roll.dye_lot,
+        width_ft: roll.width_ft,
+        performed_by: user.full_name || user.email,
+        notes: `Assigned to job ${job.job_number}`
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roll', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      setShowAssignDialog(false);
+      setSelectedJobId('');
+      toast.success('Roll assigned to job');
+    }
   });
 
   if (isLoading) {
@@ -94,14 +164,26 @@ export default function RollDetail() {
             <p className="text-slate-500 mt-1">{roll.product_name} • {roll.dye_lot}</p>
           </div>
         </div>
-        {roll.status === 'Available' && roll.current_length_ft > 0 && (
-          <Link to={createPageUrl(`CutRoll?roll_id=${roll.id}`)}>
-            <Button className="bg-emerald-600 hover:bg-emerald-700">
-              <Scissors className="h-4 w-4 mr-2" />
-              Cut Roll
-            </Button>
-          </Link>
-        )}
+        <div className="flex gap-2">
+          {roll.status === 'Available' && roll.current_length_ft > 0 && (
+            <>
+              <Button 
+                onClick={() => setShowAssignDialog(true)}
+                variant="outline"
+                className="border-blue-600 text-blue-600 hover:bg-blue-50"
+              >
+                <Briefcase className="h-4 w-4 mr-2" />
+                Assign to Job
+              </Button>
+              <Link to={createPageUrl(`CutRoll?roll_id=${roll.id}`)}>
+                <Button className="bg-emerald-600 hover:bg-emerald-700">
+                  <Scissors className="h-4 w-4 mr-2" />
+                  Cut Roll
+                </Button>
+              </Link>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

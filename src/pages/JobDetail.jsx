@@ -216,13 +216,15 @@ export default function JobDetail() {
           if (roll) {
             const finalStatus = returnItem.condition === 'Scrapped' ? 'Scrapped' : 'Available';
             const finalTTSKU = returnItem.has_existing_tag === 'new' ? returnItem.new_tt_sku : (roll.tt_sku_tag_number || roll.roll_tag);
-            
-            // Update roll status, length, and tag
+
+            // Update roll status, length, tag, location, and condition
             await base44.entities.Roll.update(returnItem.id, {
               status: finalStatus,
               current_length_ft: returnItem.returned_length_ft,
               tt_sku_tag_number: finalTTSKU,
-              condition: returnItem.condition || 'Good'
+              condition: returnItem.condition || 'New',
+              location_bin: returnItem.location_bin || roll.location_bin,
+              location_row: returnItem.location_row || roll.location_row
             });
             
             // Create transaction
@@ -239,8 +241,8 @@ export default function JobDetail() {
               length_change_ft: returnItem.returned_length_ft,
               length_before_ft: 0,
               length_after_ft: returnItem.returned_length_ft,
-              performed_by: user.email,
-              notes: `Returned from job ${job.job_number} - Condition: ${returnItem.condition || 'Good'}${returnItem.has_existing_tag === 'new' ? ' - New tag assigned' : ''}`
+              performed_by: user.full_name || user.email,
+              notes: `Returned from job ${job.job_number} - Condition: ${returnItem.condition || 'New'}${returnItem.has_existing_tag === 'new' ? ' - New tag assigned' : ''} - Location: ${returnItem.location_bin || roll.location_bin}-${returnItem.location_row || roll.location_row}`
             });
           }
         }
@@ -290,7 +292,7 @@ export default function JobDetail() {
                 length_change_ft: -roll.current_length_ft,
                 length_before_ft: roll.current_length_ft,
                 length_after_ft: 0,
-                performed_by: user.email,
+                performed_by: user.full_name || user.email,
                 notes: `Sent out to job ${job.job_number}`
               });
             }
@@ -310,7 +312,7 @@ export default function JobDetail() {
               job_id: jobId,
               job_number: job.job_number,
               product_name: accessory.item_name,
-              performed_by: user.email,
+              performed_by: user.full_name || user.email,
               notes: `Sent ${allocation.requested_quantity || 1} ${accessory.unit_of_measure} to job ${job.job_number}`
             });
           }
@@ -329,7 +331,7 @@ export default function JobDetail() {
               job_id: jobId,
               job_number: job.job_number,
               product_name: material.item_name,
-              performed_by: user.email,
+              performed_by: user.full_name || user.email,
               notes: `Sent ${allocation.requested_quantity || 1} ${material.unit_of_measure} to job ${job.job_number}`
             });
           }
@@ -710,16 +712,19 @@ export default function JobDetail() {
                 allocations.map((allocation) => (
                   <TableRow key={allocation.id}>
                     <TableCell>
-                      <StatusBadge 
-                        status={
-                          allocation.item_type === 'roll' 
-                            ? (rolls.find(r => allocation.allocated_roll_ids?.includes(r.id))?.roll_type || 'Parent')
-                            : allocation.item_type === 'accessory' 
-                            ? 'Accessory' 
-                            : 'Material'
-                        } 
-                        size="sm" 
-                      />
+                      {allocation.item_type === 'roll' ? (
+                        <div className="flex gap-2">
+                          <StatusBadge 
+                            status={rolls.find(r => allocation.allocated_roll_ids?.includes(r.id))?.roll_type || 'Parent'} 
+                            size="sm" 
+                          />
+                        </div>
+                      ) : (
+                        <StatusBadge 
+                          status={allocation.item_type === 'accessory' ? 'Accessory' : 'Material'} 
+                          size="sm" 
+                        />
+                      )}
                     </TableCell>
                     <TableCell className="font-medium">{allocation.product_name}</TableCell>
                     <TableCell className="text-slate-600">
@@ -793,7 +798,9 @@ export default function JobDetail() {
                                   returned_length_ft: roll.current_length_ft || 0,
                                   has_existing_tag: 'existing',
                                   new_tt_sku: '',
-                                  condition: 'Good'
+                                  condition: 'New',
+                                  location_bin: '',
+                                  location_row: ''
                                 }]);
                               } else {
                                 setReturnItems(prev => prev.filter(r => r.id !== rollId));
@@ -886,12 +893,58 @@ export default function JobDetail() {
                                       <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      <SelectItem value="Good">Good - Add back to inventory</SelectItem>
-                                      <SelectItem value="Used">Used - Add back to inventory</SelectItem>
+                                      <SelectItem value="New">New - Add back to inventory</SelectItem>
                                       <SelectItem value="Damaged">Damaged - Add back to inventory</SelectItem>
                                       <SelectItem value="Scrapped">Scrapped - Do not add to inventory</SelectItem>
                                     </SelectContent>
                                   </Select>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <Label className="text-xs font-semibold">Location Bin *</Label>
+                                    <Select
+                                      value={returnItem.location_bin || ''}
+                                      onValueChange={(v) => {
+                                        setReturnItems(prev => prev.map(r => 
+                                          r.id === rollId 
+                                            ? { ...r, location_bin: v }
+                                            : r
+                                        ));
+                                      }}
+                                    >
+                                      <SelectTrigger className="mt-1">
+                                        <SelectValue placeholder="1-9" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {Array.from({ length: 9 }, (_, i) => i + 1).map(bin => (
+                                          <SelectItem key={bin} value={bin.toString()}>{bin}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs font-semibold">Location Row *</Label>
+                                    <Select
+                                      value={returnItem.location_row || ''}
+                                      onValueChange={(v) => {
+                                        setReturnItems(prev => prev.map(r => 
+                                          r.id === rollId 
+                                            ? { ...r, location_row: v }
+                                            : r
+                                        ));
+                                      }}
+                                    >
+                                      <SelectTrigger className="mt-1">
+                                        <SelectValue placeholder="A-C" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {['A', 'B', 'C'].map(row => (
+                                          <SelectItem key={row} value={row}>{row}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
                                 </div>
                               </div>
                             )}
