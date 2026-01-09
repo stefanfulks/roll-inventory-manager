@@ -84,14 +84,9 @@ export default function JobDetail() {
 
   const rolls = allRolls.filter(r => r.status === 'Available');
 
-  const { data: accessories = [] } = useQuery({
-    queryKey: ['accessories'],
-    queryFn: () => base44.entities.Accessory.list(),
-  });
-
-  const { data: materials = [] } = useQuery({
-    queryKey: ['materials'],
-    queryFn: () => base44.entities.Material.list(),
+  const { data: inventoryItems = [] } = useQuery({
+    queryKey: ['inventoryItems'],
+    queryFn: () => base44.entities.InventoryItem.list(),
   });
 
   const { data: returnTransactions = [] } = useQuery({
@@ -119,24 +114,13 @@ export default function JobDetail() {
             item_type: 'roll',
             status: 'Planned'
           });
-        } else if (item.type === 'accessory') {
+        } else if (item.type === 'inventory_item') {
           await base44.entities.Allocation.create({
             job_id: jobId,
             job_name: job.job_name || job.job_number,
             product_name: item.item_name,
             item_id: item.id,
-            item_type: 'accessory',
-            requested_quantity: 1,
-            unit_of_measure: item.unit_of_measure,
-            status: 'Planned'
-          });
-        } else if (item.type === 'material') {
-          await base44.entities.Allocation.create({
-            job_id: jobId,
-            job_name: job.job_name || job.job_number,
-            product_name: item.item_name,
-            item_id: item.id,
-            item_type: 'material',
+            item_type: 'inventory_item',
             requested_quantity: 1,
             unit_of_measure: item.unit_of_measure,
             status: 'Planned'
@@ -297,12 +281,12 @@ export default function JobDetail() {
               });
             }
           }
-        } else if (allocation.item_type === 'accessory') {
-          // Decrement accessory quantity
-          const accessory = accessories.find(a => a.id === allocation.item_id);
-          if (accessory) {
-            await base44.entities.Accessory.update(allocation.item_id, {
-              quantity_on_hand: accessory.quantity_on_hand - (allocation.requested_quantity || 1)
+        } else if (allocation.item_type === 'inventory_item') {
+          // Decrement inventory item quantity
+          const inventoryItem = inventoryItems.find(i => i.id === allocation.item_id);
+          if (inventoryItem) {
+            await base44.entities.InventoryItem.update(allocation.item_id, {
+              quantity_on_hand: inventoryItem.quantity_on_hand - (allocation.requested_quantity || 1)
             });
             
             // Create transaction
@@ -311,28 +295,9 @@ export default function JobDetail() {
               fulfillment_for: job.fulfillment_for,
               job_id: jobId,
               job_number: job.job_number,
-              product_name: accessory.item_name,
+              product_name: inventoryItem.item_name,
               performed_by: user.full_name || user.email,
-              notes: `Sent ${allocation.requested_quantity || 1} ${accessory.unit_of_measure} to job ${job.job_number}`
-            });
-          }
-        } else if (allocation.item_type === 'material') {
-          // Decrement material quantity
-          const material = materials.find(m => m.id === allocation.item_id);
-          if (material) {
-            await base44.entities.Material.update(allocation.item_id, {
-              quantity_on_hand: material.quantity_on_hand - (allocation.requested_quantity || 1)
-            });
-            
-            // Create transaction
-            await base44.entities.Transaction.create({
-              transaction_type: 'SendOutToJob',
-              fulfillment_for: job.fulfillment_for,
-              job_id: jobId,
-              job_number: job.job_number,
-              product_name: material.item_name,
-              performed_by: user.full_name || user.email,
-              notes: `Sent ${allocation.requested_quantity || 1} ${material.unit_of_measure} to job ${job.job_number}`
+              notes: `Sent ${allocation.requested_quantity || 1} ${inventoryItem.unit_of_measure} to job ${job.job_number}`
             });
           }
         }
@@ -345,8 +310,7 @@ export default function JobDetail() {
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
-      queryClient.invalidateQueries({ queryKey: ['accessories'] });
-      queryClient.invalidateQueries({ queryKey: ['materials'] });
+      queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
       toast.success('Job sent out successfully');
     },
     onError: (error) => {
@@ -372,11 +336,11 @@ export default function JobDetail() {
     createAllocationMutation.mutate(selectedItems);
   };
 
-  const filteredInventory = [...rolls, ...accessories, ...materials].filter(item => {
+  const filteredInventory = [...rolls, ...inventoryItems].filter(item => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
     const isTurf = item.tt_sku_tag_number !== undefined;
-    const isAccessoryOrMaterial = item.item_name !== undefined;
+    const isInventoryItem = item.item_name !== undefined;
     
     if (isTurf) {
       return (
@@ -384,10 +348,11 @@ export default function JobDetail() {
         item.product_name?.toLowerCase().includes(search) ||
         item.dye_lot?.toLowerCase().includes(search)
       );
-    } else if (isAccessoryOrMaterial) {
+    } else if (isInventoryItem) {
       return (
         item.item_name?.toLowerCase().includes(search) ||
-        item.sku?.toLowerCase().includes(search)
+        item.sku?.toLowerCase().includes(search) ||
+        item.category?.toLowerCase().includes(search)
       );
     }
     return false;
@@ -621,7 +586,7 @@ export default function JobDetail() {
                     <div className="divide-y">
                       {filteredInventory.map(item => {
                         const isTurf = item.tt_sku_tag_number !== undefined;
-                        const itemType = isTurf ? 'roll' : (item.unit_of_measure && accessories.some(a => a.id === item.id) ? 'accessory' : 'material');
+                        const itemType = isTurf ? 'roll' : 'inventory_item';
                         const isSelected = selectedItems.find(i => i.id === item.id && i.type === itemType);
                         
                         return (
@@ -728,10 +693,10 @@ export default function JobDetail() {
                           />
                         </div>
                       ) : (
-                        <StatusBadge 
-                          status={allocation.item_type === 'accessory' ? 'Accessory' : 'Material'} 
-                          size="sm" 
-                        />
+                       <StatusBadge 
+                         status="Item" 
+                         size="sm" 
+                       />
                       )}
                     </TableCell>
                     <TableCell className="font-medium">{allocation.product_name}</TableCell>
