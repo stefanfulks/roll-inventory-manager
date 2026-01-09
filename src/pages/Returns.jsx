@@ -54,7 +54,9 @@ export default function Returns() {
 
   const { data: jobs = [] } = useQuery({
     queryKey: ['jobs-for-returns'],
-    queryFn: () => base44.entities.Job.list('-created_date', 100),
+    queryFn: () => base44.entities.Job.filter({ 
+      status: { $in: ['SentOut', 'AwaitingReturnInventory', 'Completed'] }
+    }, '-created_date', 100),
   });
 
   const { data: locations = [] } = useQuery({
@@ -298,7 +300,7 @@ export default function Returns() {
                       <SelectItem value={null}>No job</SelectItem>
                       {jobs.map(j => (
                         <SelectItem key={j.id} value={j.id}>
-                          {j.job_name} - {j.customer_name}
+                          {j.job_number} - {j.customer_name || 'No name'}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -424,7 +426,7 @@ export default function Returns() {
                         <SelectItem value={null}>No job</SelectItem>
                         {jobs.map(j => (
                           <SelectItem key={j.id} value={j.id}>
-                            {j.job_name} - {j.customer_name}
+                            {j.job_number} - {j.customer_name || 'No name'}
                           </SelectItem>
                         ))}
                       </SelectContent>

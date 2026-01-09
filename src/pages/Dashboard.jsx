@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { 
@@ -12,12 +12,14 @@ import {
   Truck,
   Clock,
   AlertTriangle,
-  Send
+  Send,
+  Settings as SettingsIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import DashboardCustomizer from '@/components/dashboard/DashboardCustomizer';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import StatCard from '@/components/ui/StatCard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -31,10 +33,16 @@ import {
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
 export default function Dashboard() {
+  const queryClient = useQueryClient();
   const [showLowInventory, setShowLowInventory] = useState(false);
   const [lowInventoryItems, setLowInventoryItems] = useState([]);
   const [slackChannel, setSlackChannel] = useState('');
   const [sendingSlack, setSendingSlack] = useState(false);
+  const [showCustomizer, setShowCustomizer] = useState(false);
+  const [visibleCharts, setVisibleCharts] = useState([
+    'status_distribution', 'shipped_total', 'top_turf', 'length_distribution',
+    'roll_type', 'full_vs_partial_count', 'full_vs_partial_sqft'
+  ]);
 
   const { data: rolls = [], isLoading: loadingRolls } = useQuery({
     queryKey: ['rolls'],
@@ -70,6 +78,48 @@ export default function Dashboard() {
     queryKey: ['settings'],
     queryFn: () => base44.entities.Settings.list(),
   });
+
+  const { data: user } = useQuery({
+    queryKey: ['user'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  const { data: userPrefs } = useQuery({
+    queryKey: ['userPreferences', user?.email],
+    queryFn: () => base44.entities.UserPreferences.filter({ user_email: user.email }),
+    enabled: !!user?.email,
+    select: (data) => data[0],
+  });
+
+  const savePreferencesMutation = useMutation({
+    mutationFn: async (charts) => {
+      if (userPrefs) {
+        await base44.entities.UserPreferences.update(userPrefs.id, {
+          visible_dashboard_charts: charts
+        });
+      } else {
+        await base44.entities.UserPreferences.create({
+          user_email: user.email,
+          visible_dashboard_charts: charts
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['userPreferences'] });
+      toast.success('Dashboard preferences saved');
+    }
+  });
+
+  useEffect(() => {
+    if (userPrefs?.visible_dashboard_charts) {
+      setVisibleCharts(userPrefs.visible_dashboard_charts);
+    }
+  }, [userPrefs]);
+
+  const handleSavePreferences = (charts) => {
+    setVisibleCharts(charts);
+    savePreferencesMutation.mutate(charts);
+  };
 
   const getSetting = (key, defaultValue) => {
     const setting = settings.find(s => s.setting_key === key);
@@ -254,6 +304,10 @@ export default function Dashboard() {
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Dashboard</h1>
           <p className="text-slate-500 mt-1">TexasTurf inventory overview and analytics</p>
         </div>
+        <Button variant="outline" onClick={() => setShowCustomizer(true)}>
+          <SettingsIcon className="h-4 w-4 mr-2" />
+          Customize
+        </Button>
       </div>
 
       {/* Stats Grid */}
@@ -300,6 +354,7 @@ export default function Dashboard() {
       {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Status Distribution */}
+        {visibleCharts.includes('status_distribution') && (
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Inventory by Status</h3>
           <div className="h-64">
@@ -325,8 +380,10 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
+        )}
 
         {/* Shipped Out Tracking */}
+        {visibleCharts.includes('shipped_total') && (
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Total Shipped Out</h3>
           <div className="flex items-center justify-center h-64">
@@ -339,8 +396,10 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+        )}
 
         {/* Top Turf by Jobs */}
+        {visibleCharts.includes('top_turf') && (
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Top Turf by Jobs</h3>
           <div className="h-64">
@@ -355,8 +414,10 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
+        )}
 
         {/* Length Distribution */}
+        {visibleCharts.includes('length_distribution') && (
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Remaining Length Buckets</h3>
           <div className="h-64">
@@ -371,8 +432,10 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
+        )}
 
         {/* Roll Type Distribution */}
+        {visibleCharts.includes('roll_type') && (
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Parent vs Child Rolls</h3>
           <div className="h-64">
@@ -401,8 +464,10 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
+        )}
 
         {/* Full vs Partial Rolls Count */}
+        {visibleCharts.includes('full_vs_partial_count') && (
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Full vs Partial Rolls by Turf</h3>
           <div className="h-64">
@@ -434,8 +499,10 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
+        )}
 
         {/* Full vs Partial Sq Ft */}
+        {visibleCharts.includes('full_vs_partial_sqft') && (
         <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Full vs Partial Sq Ft by Turf</h3>
           <div className="h-64">
@@ -468,7 +535,16 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
         </div>
+        )}
       </div>
+
+      {/* Dashboard Customizer */}
+      <DashboardCustomizer
+        open={showCustomizer}
+        onOpenChange={setShowCustomizer}
+        visibleCharts={visibleCharts}
+        onSave={handleSavePreferences}
+      />
 
       {/* Low Inventory Dialog */}
       <Dialog open={showLowInventory} onOpenChange={setShowLowInventory}>

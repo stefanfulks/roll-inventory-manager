@@ -448,8 +448,11 @@ export default function Receive() {
                           <SelectValue placeholder="Select product" />
                         </SelectTrigger>
                         <SelectContent>
-                          {products.filter(p => !singleForm.width_ft || p.width_options?.includes(parseFloat(singleForm.width_ft)))
-                                    .map(p => (
+                          {products.filter(p => {
+                            const widthMatch = !singleForm.width_ft || p.width_options?.includes(parseFloat(singleForm.width_ft));
+                            const manufacturerMatch = !singleForm.manufacturer_name || p.manufacturer_name === singleForm.manufacturer_name;
+                            return widthMatch && manufacturerMatch;
+                          }).map(p => (
                             <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -579,8 +582,11 @@ export default function Receive() {
                           <SelectValue placeholder="Select product" />
                         </SelectTrigger>
                         <SelectContent>
-                          {products.filter(p => !rapidForm.width_ft || p.width_options?.includes(parseFloat(rapidForm.width_ft)))
-                                    .map(p => (
+                          {products.filter(p => {
+                            const widthMatch = !rapidForm.width_ft || p.width_options?.includes(parseFloat(rapidForm.width_ft));
+                            const manufacturerMatch = !rapidForm.manufacturer_name || p.manufacturer_name === rapidForm.manufacturer_name;
+                            return widthMatch && manufacturerMatch;
+                          }).map(p => (
                             <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
                           ))}
                         </SelectContent>

@@ -47,6 +47,7 @@ const adminItems = [
   { name: 'Materials', page: 'Materials', icon: Package },
   { name: 'Locations', page: 'Locations', icon: MapPin },
   { name: 'Transactions', page: 'Transactions', icon: FileSpreadsheet },
+  { name: 'Turf Overage', page: 'TurfOverageReport', icon: FileBarChart },
   { name: 'Settings', page: 'Settings', icon: Settings },
   { name: 'Reports', page: 'Reports', icon: FileBarChart },
   { name: 'Help', page: 'Help', icon: HelpCircle },
