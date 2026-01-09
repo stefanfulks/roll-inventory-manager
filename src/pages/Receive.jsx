@@ -367,17 +367,11 @@ export default function Receive() {
   const handleManufacturerSelect = (manufacturerId, formSetter) => {
     const manufacturer = manufacturers.find(m => m.id === manufacturerId);
     if (manufacturer) {
-      let defaultWidth = '';
-      if (manufacturer.vendor_name === 'AGL Grass') {
-        defaultWidth = '13';
-      } else if (manufacturer.vendor_name === 'Mighty Grass') {
-        defaultWidth = '15';
-      }
       formSetter(prev => ({
         ...prev,
         manufacturer_id: manufacturerId,
         manufacturer_name: manufacturer.vendor_name,
-        width_ft: defaultWidth,
+        width_ft: '',
         product_id: '',
         product_name: ''
       }));
