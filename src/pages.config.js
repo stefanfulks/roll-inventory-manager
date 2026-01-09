@@ -1,4 +1,3 @@
-import Accessories from './pages/Accessories';
 import CutRoll from './pages/CutRoll';
 import Dashboard from './pages/Dashboard';
 import Help from './pages/Help';
@@ -6,7 +5,6 @@ import Inventory from './pages/Inventory';
 import JobDetail from './pages/JobDetail';
 import Jobs from './pages/Jobs';
 import Locations from './pages/Locations';
-import Materials from './pages/Materials';
 import PendingInventory from './pages/PendingInventory';
 import Products from './pages/Products';
 import Receive from './pages/Receive';
@@ -21,7 +19,6 @@ import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
-    "Accessories": Accessories,
     "CutRoll": CutRoll,
     "Dashboard": Dashboard,
     "Help": Help,
@@ -29,7 +26,6 @@ export const PAGES = {
     "JobDetail": JobDetail,
     "Jobs": Jobs,
     "Locations": Locations,
-    "Materials": Materials,
     "PendingInventory": PendingInventory,
     "Products": Products,
     "Receive": Receive,
