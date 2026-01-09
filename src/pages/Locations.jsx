@@ -157,62 +157,63 @@ export default function Locations() {
                 Add Location
               </Button>
             </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>{editingLocation ? 'Edit Location' : 'Add Location'}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-4">
-              <div className="space-y-2">
-                <Label>Location Name *</Label>
-                <Input 
-                  value={formData.name}
-                  onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
-                  placeholder="e.g., Rack A-1, Zone 3"
-                />
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>{editingLocation ? 'Edit Location' : 'Add Location'}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <Label>Location Name *</Label>
+                  <Input 
+                    value={formData.name}
+                    onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
+                    placeholder="e.g., Rack A-1, Zone 3"
+                  />
+                </div>
+
+                {editingLocation && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Type</Label>
+                      <Select 
+                        value={formData.type} 
+                        onValueChange={v => setFormData(p => ({ ...p, type: v }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="warehouse">Warehouse</SelectItem>
+                          <SelectItem value="truck">Truck</SelectItem>
+                          <SelectItem value="staging">Staging</SelectItem>
+                          <SelectItem value="returns">Returns</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Notes</Label>
+                      <Textarea 
+                        value={formData.notes}
+                        onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
+                        placeholder="Optional notes..."
+                        rows={2}
+                      />
+                    </div>
+                  </>
+                )}
+
+                <Button 
+                  onClick={handleSave} 
+                  disabled={saveMutation.isPending}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700"
+                >
+                  {saveMutation.isPending ? 'Saving...' : 'Save Location'}
+                </Button>
               </div>
-
-              {editingLocation && (
-                <>
-                  <div className="space-y-2">
-                    <Label>Type</Label>
-                    <Select 
-                      value={formData.type} 
-                      onValueChange={v => setFormData(p => ({ ...p, type: v }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="warehouse">Warehouse</SelectItem>
-                        <SelectItem value="truck">Truck</SelectItem>
-                        <SelectItem value="staging">Staging</SelectItem>
-                        <SelectItem value="returns">Returns</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Notes</Label>
-                    <Textarea 
-                      value={formData.notes}
-                      onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
-                      placeholder="Optional notes..."
-                      rows={2}
-                    />
-                  </div>
-                </>
-              )}
-
-              <Button 
-                onClick={handleSave} 
-                disabled={saveMutation.isPending}
-                className="w-full bg-emerald-600 hover:bg-emerald-700"
-              >
-                {saveMutation.isPending ? 'Saving...' : 'Save Location'}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Table */}
