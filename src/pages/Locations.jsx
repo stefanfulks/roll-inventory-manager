@@ -41,6 +41,7 @@ export default function Locations() {
   const queryClient = useQueryClient();
   const [showDialog, setShowDialog] = useState(false);
   const [editingLocation, setEditingLocation] = useState(null);
+  const [selectedLocations, setSelectedLocations] = useState([]);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -69,12 +70,17 @@ export default function Locations() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (locationId) => {
-      await base44.entities.Location.delete(locationId);
+    mutationFn: async (locationIds) => {
+      const ids = Array.isArray(locationIds) ? locationIds : [locationIds];
+      for (const id of ids) {
+        await base44.entities.Location.delete(id);
+      }
     },
-    onSuccess: () => {
+    onSuccess: (_, locationIds) => {
       queryClient.invalidateQueries({ queryKey: ['locations'] });
-      toast.success('Location deleted');
+      const count = Array.isArray(locationIds) ? locationIds.length : 1;
+      toast.success(`${count} location${count > 1 ? 's' : ''} deleted`);
+      setSelectedLocations([]);
     }
   });
 
@@ -125,16 +131,32 @@ export default function Locations() {
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Locations</h1>
           <p className="text-slate-500 mt-1">Manage warehouse locations</p>
         </div>
-        <Dialog open={showDialog} onOpenChange={setShowDialog}>
-          <DialogTrigger asChild>
+        <div className="flex gap-2">
+          {selectedLocations.length > 0 && (
             <Button 
-              className="bg-emerald-600 hover:bg-emerald-700"
-              onClick={() => handleOpenDialog()}
+              variant="outline"
+              className="border-red-600 text-red-600 hover:bg-red-50"
+              onClick={() => {
+                if (confirm(`Delete ${selectedLocations.length} selected location${selectedLocations.length > 1 ? 's' : ''}?`)) {
+                  deleteMutation.mutate(selectedLocations);
+                }
+              }}
+              disabled={deleteMutation.isPending}
             >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Location
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete Selected ({selectedLocations.length})
             </Button>
-          </DialogTrigger>
+          )}
+          <Dialog open={showDialog} onOpenChange={setShowDialog}>
+            <DialogTrigger asChild>
+              <Button 
+                className="bg-emerald-600 hover:bg-emerald-700"
+                onClick={() => handleOpenDialog()}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Location
+              </Button>
+            </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>{editingLocation ? 'Edit Location' : 'Add Location'}</DialogTitle>
@@ -206,6 +228,20 @@ export default function Locations() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50">
+                  <TableHead className="w-12">
+                    <input
+                      type="checkbox"
+                      checked={selectedLocations.length === locations.length && locations.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedLocations(locations.map(l => l.id));
+                        } else {
+                          setSelectedLocations([]);
+                        }
+                      }}
+                      className="cursor-pointer"
+                    />
+                  </TableHead>
                   <TableHead className="font-semibold">Location Name</TableHead>
                   <TableHead className="font-semibold">Type</TableHead>
                   <TableHead className="font-semibold">Notes</TableHead>
@@ -215,13 +251,27 @@ export default function Locations() {
               <TableBody>
                 {locations.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-12 text-slate-500">
+                    <TableCell colSpan={5} className="text-center py-12 text-slate-500">
                       No locations yet
                     </TableCell>
                   </TableRow>
                 ) : (
                   locations.map((location) => (
                     <TableRow key={location.id} className="hover:bg-slate-50 transition-colors">
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          checked={selectedLocations.includes(location.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedLocations(prev => [...prev, location.id]);
+                            } else {
+                              setSelectedLocations(prev => prev.filter(id => id !== location.id));
+                            }
+                          }}
+                          className="cursor-pointer"
+                        />
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <MapPin className="h-4 w-4 text-slate-400" />
