@@ -394,7 +394,7 @@ export default function Receive() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Form */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 overflow-visible">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-3 mb-6">
               <TabsTrigger value="single" className="flex items-center gap-2">
@@ -413,12 +413,12 @@ export default function Receive() {
 
             {/* Single Receive */}
             <TabsContent value="single">
-              <Card className="rounded-2xl border-slate-100 shadow-sm">
+              <Card className="rounded-2xl border-slate-100 shadow-sm overflow-visible">
                 <CardHeader>
                   <CardTitle>Receive Single Roll</CardTitle>
                   <CardDescription>Add one roll to inventory</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-4 overflow-visible">
                   <div className="space-y-2">
                     <Label>TT SKU Tag Number *</Label>
                     <Input 
@@ -553,12 +553,12 @@ export default function Receive() {
 
             {/* Rapid Entry */}
             <TabsContent value="rapid">
-              <Card className="rounded-2xl border-slate-100 shadow-sm">
+              <Card className="rounded-2xl border-slate-100 shadow-sm overflow-visible">
                 <CardHeader>
                   <CardTitle>Rapid Entry Mode</CardTitle>
                   <CardDescription>Create multiple rolls with the same settings</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-4 overflow-visible">
                   <div className="space-y-2">
                     <Label>Manufacturer *</Label>
                     <Select 
