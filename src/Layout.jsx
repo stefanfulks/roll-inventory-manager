@@ -187,12 +187,12 @@ export default function Layout({ children, currentPageName }) {
                   className={`
                     flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
                     ${isActive 
-                      ? 'bg-emerald-50 text-emerald-700 font-medium' 
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      ? 'bg-emerald-50 text-emerald-700 font-medium dark:bg-emerald-900/30 dark:text-emerald-400' 
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white'
                     }
                   `}
                 >
-                  <item.icon className={`h-5 w-5 ${isActive ? 'text-emerald-600' : ''}`} />
+                  <item.icon className={`h-5 w-5 ${isActive ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
                   <span>{item.name}</span>
                 </Link>
               );
@@ -211,12 +211,12 @@ export default function Layout({ children, currentPageName }) {
                   className={`
                     flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
                     ${isActive 
-                      ? 'bg-emerald-50 text-emerald-700 font-medium' 
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      ? 'bg-emerald-50 text-emerald-700 font-medium dark:bg-emerald-900/30 dark:text-emerald-400' 
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white'
                     }
                   `}
                 >
-                  <item.icon className={`h-5 w-5 ${isActive ? 'text-emerald-600' : ''}`} />
+                  <item.icon className={`h-5 w-5 ${isActive ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
                   <span>{item.name}</span>
                 </Link>
               );
