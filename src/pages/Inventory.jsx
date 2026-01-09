@@ -324,8 +324,12 @@ export default function Inventory() {
                   </TableRow>
                 ) : (
                   filteredRolls.map((roll) => (
-                    <TableRow key={roll.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors border-b dark:border-slate-700/30">
-                      <TableCell>
+                    <TableRow 
+                      key={roll.id} 
+                      className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors border-b dark:border-slate-700/30 cursor-pointer"
+                      onClick={() => window.location.href = createPageUrl(`RollDetail?id=${roll.id}`)}
+                    >
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox 
                           checked={selectedRolls.includes(roll.id)}
                           onCheckedChange={(checked) => handleSelectRoll(roll.id, checked)}
@@ -352,7 +356,7 @@ export default function Inventory() {
                       <TableCell className="text-slate-600 dark:text-slate-300">
                         {roll.location_bin && roll.location_row ? `${roll.location_bin}-${roll.location_row}` : '-'}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm">
