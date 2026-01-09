@@ -22,7 +22,9 @@ import { toast } from 'sonner';
 import DashboardCustomizer from '@/components/dashboard/DashboardCustomizer';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import StatCard from '@/components/ui/StatCard';
+import StatusBadge from '@/components/ui/StatusBadge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { format } from 'date-fns';
 import {
   Dialog,
   DialogContent,
