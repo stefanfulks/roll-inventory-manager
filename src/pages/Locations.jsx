@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { 
   Plus, 
   Pencil,
   Trash2,
-  MapPin
+  MapPin,
+  GripVertical
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,12 +48,16 @@ export default function Locations() {
   const [formData, setFormData] = useState({
     name: '',
     type: 'warehouse',
+    designated_for: 'all',
     notes: ''
   });
 
   const { data: locations = [], isLoading } = useQuery({
     queryKey: ['locations'],
-    queryFn: () => base44.entities.Location.list('-created_date', 200),
+    queryFn: async () => {
+      const locs = await base44.entities.Location.list('-created_date', 200);
+      return locs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    },
   });
 
   const saveMutation = useMutation({
@@ -90,6 +96,7 @@ export default function Locations() {
       setFormData({
         name: location.name,
         type: location.type,
+        designated_for: location.designated_for || 'all',
         notes: location.notes || ''
       });
     } else {
@@ -97,6 +104,7 @@ export default function Locations() {
       setFormData({
         name: '',
         type: 'warehouse',
+        designated_for: 'all',
         notes: ''
       });
     }
@@ -113,7 +121,28 @@ export default function Locations() {
       toast.error('Please enter a location name');
       return;
     }
-    saveMutation.mutate(formData);
+    const dataToSave = { ...formData };
+    if (!editingLocation) {
+      dataToSave.sort_order = locations.length;
+    }
+    saveMutation.mutate(dataToSave);
+  };
+
+  const handleDragEnd = async (result) => {
+    if (!result.destination) return;
+    
+    const items = Array.from(locations);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+    
+    queryClient.setQueryData(['locations'], items);
+    
+    for (let i = 0; i < items.length; i++) {
+      await base44.entities.Location.update(items[i].id, { sort_order: i });
+    }
+    
+    queryClient.invalidateQueries({ queryKey: ['locations'] });
+    toast.success('Location order updated');
   };
 
   const typeColors = {
@@ -188,11 +217,28 @@ export default function Locations() {
                           <SelectItem value="staging">Staging</SelectItem>
                           <SelectItem value="returns">Returns</SelectItem>
                         </SelectContent>
-                      </Select>
-                    </div>
+                        </Select>
+                        </div>
 
-                    <div className="space-y-2">
-                      <Label>Notes</Label>
+                        <div className="space-y-2">
+                        <Label>Designated For</Label>
+                        <Select 
+                        value={formData.designated_for} 
+                        onValueChange={v => setFormData(p => ({ ...p, designated_for: v }))}
+                        >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Items</SelectItem>
+                          <SelectItem value="turf_only">Turf Rolls Only</SelectItem>
+                          <SelectItem value="other_inventory_only">Other Inventory Only</SelectItem>
+                        </SelectContent>
+                        </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                        <Label>Notes</Label>
                       <Textarea 
                         value={formData.notes}
                         onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
@@ -228,8 +274,8 @@ export default function Locations() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50">
-                  <TableHead className="w-12">
+                <TableRow className="bg-slate-50 dark:bg-slate-800/50">
+                  <TableHead className="w-12 dark:text-slate-300">
                     <input
                       type="checkbox"
                       checked={selectedLocations.length === locations.length && locations.length > 0}
@@ -243,78 +289,105 @@ export default function Locations() {
                       className="cursor-pointer"
                     />
                   </TableHead>
-                  <TableHead className="font-semibold">Location Name</TableHead>
-                  <TableHead className="font-semibold">Type</TableHead>
-                  <TableHead className="font-semibold">Notes</TableHead>
-                  <TableHead className="font-semibold">Actions</TableHead>
+                  <TableHead className="w-12 dark:text-slate-300"></TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300">Location Name</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300">Type</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300">Designated For</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300">Notes</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300">Actions</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {locations.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-12 text-slate-500">
-                      No locations yet
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  locations.map((location) => (
-                    <TableRow key={location.id} className="hover:bg-slate-50 transition-colors">
-                      <TableCell>
-                        <input
-                          type="checkbox"
-                          checked={selectedLocations.includes(location.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedLocations(prev => [...prev, location.id]);
-                            } else {
-                              setSelectedLocations(prev => prev.filter(id => id !== location.id));
-                            }
-                          }}
-                          className="cursor-pointer"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4 text-slate-400" />
-                          <span className="font-medium">{location.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className={`inline-flex items-center px-3 py-1 text-sm font-medium rounded-full ${typeColors[location.type]}`}>
-                          {location.type}
-                        </span>
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate text-slate-600">
-                        {location.notes || '-'}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => handleOpenDialog(location)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => {
-                              if (confirm('Delete this location?')) {
-                                deleteMutation.mutate(location.id);
-                              }
-                            }}
-                            disabled={deleteMutation.isPending}
-                            className="text-red-500 hover:text-red-700"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
+              <DragDropContext onDragEnd={handleDragEnd}>
+                <Droppable droppableId="locations">
+                  {(provided) => (
+                    <TableBody {...provided.droppableProps} ref={provided.innerRef}>
+                      {locations.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center py-12 text-slate-500 dark:text-slate-400">
+                            No locations yet
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        locations.map((location, index) => (
+                          <Draggable key={location.id} draggableId={location.id} index={index}>
+                            {(provided) => (
+                              <TableRow 
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
+                              >
+                                <TableCell>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedLocations.includes(location.id)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedLocations(prev => [...prev, location.id]);
+                                      } else {
+                                        setSelectedLocations(prev => prev.filter(id => id !== location.id));
+                                      }
+                                    }}
+                                    className="cursor-pointer"
+                                  />
+                                </TableCell>
+                                <TableCell {...provided.dragHandleProps}>
+                                  <GripVertical className="h-4 w-4 text-slate-400 cursor-grab" />
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <MapPin className="h-4 w-4 text-slate-400" />
+                                    <span className="font-medium dark:text-white">{location.name}</span>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <span className={`inline-flex items-center px-3 py-1 text-sm font-medium rounded-full ${typeColors[location.type]}`}>
+                                    {location.type}
+                                  </span>
+                                </TableCell>
+                                <TableCell>
+                                  <span className="text-sm dark:text-slate-300">
+                                    {location.designated_for === 'all' && '🔵 All Items'}
+                                    {location.designated_for === 'turf_only' && '🟢 Turf Only'}
+                                    {location.designated_for === 'other_inventory_only' && '🟡 Other Inventory'}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="max-w-xs truncate text-slate-600 dark:text-slate-400">
+                                  {location.notes || '-'}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm"
+                                      onClick={() => handleOpenDialog(location)}
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm"
+                                      onClick={() => {
+                                        if (confirm('Delete this location?')) {
+                                          deleteMutation.mutate(location.id);
+                                        }
+                                      }}
+                                      disabled={deleteMutation.isPending}
+                                      className="text-red-500 hover:text-red-700"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Draggable>
+                        ))
+                      )}
+                      {provided.placeholder}
+                    </TableBody>
+                  )}
+                </Droppable>
+              </DragDropContext>
             </Table>
           </div>
         )}
