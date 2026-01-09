@@ -183,9 +183,9 @@ export default function Dashboard() {
 
   // Calculate metrics
   const availableRolls = filteredRolls.filter((r) => r.status === 'Available');
-  const totalRolls = filteredRolls.length;
-  const parentRolls = filteredRolls.filter((r) => r.roll_type === 'Parent');
-  const childRolls = filteredRolls.filter((r) => r.roll_type === 'Child');
+  const totalRolls = availableRolls.length;
+  const parentRolls = availableRolls.filter((r) => r.roll_type === 'Parent');
+  const childRolls = availableRolls.filter((r) => r.roll_type === 'Child');
 
   const totalSqft = availableRolls.reduce((sum, r) => sum + r.current_length_ft * r.width_ft, 0);
 

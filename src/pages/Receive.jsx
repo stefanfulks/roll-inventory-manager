@@ -429,44 +429,42 @@ export default function Receive() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Manufacturer *</Label>
-                      <Select 
-                        value={singleForm.manufacturer_id}
-                        onValueChange={v => handleManufacturerSelect(v, setSingleForm)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select manufacturer" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {manufacturers.map(m => (
-                            <SelectItem key={m.id} value={m.id}>{m.vendor_name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Product *</Label>
-                      <Select 
-                        value={singleForm.product_id} 
-                        onValueChange={v => handleProductSelect(v, setSingleForm)}
-                        disabled={!singleForm.manufacturer_id}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select product" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {products.filter(p => {
-                            const widthMatch = !singleForm.width_ft || p.width_options?.includes(parseFloat(singleForm.width_ft));
-                            const manufacturerMatch = !singleForm.manufacturer_name || p.manufacturer_name === singleForm.manufacturer_name;
-                            return widthMatch && manufacturerMatch;
-                          }).map(p => (
-                            <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="space-y-2">
+                    <Label>Manufacturer *</Label>
+                    <Select 
+                      value={singleForm.manufacturer_id}
+                      onValueChange={v => handleManufacturerSelect(v, setSingleForm)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select manufacturer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {manufacturers.map(m => (
+                          <SelectItem key={m.id} value={m.id}>{m.vendor_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Product *</Label>
+                    <Select 
+                      value={singleForm.product_id} 
+                      onValueChange={v => handleProductSelect(v, setSingleForm)}
+                      disabled={!singleForm.manufacturer_id}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={singleForm.manufacturer_id ? "Select product" : "Select manufacturer first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {products.filter(p => {
+                          const widthMatch = !singleForm.width_ft || p.width_options?.includes(parseFloat(singleForm.width_ft));
+                          const manufacturerMatch = !singleForm.manufacturer_name || p.manufacturer_name === singleForm.manufacturer_name;
+                          return widthMatch && manufacturerMatch;
+                        }).map(p => (
+                          <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="space-y-2">
@@ -561,44 +559,42 @@ export default function Receive() {
                   <CardDescription>Create multiple rolls with the same settings</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Manufacturer *</Label>
-                      <Select 
-                        value={rapidForm.manufacturer_id}
-                        onValueChange={v => handleManufacturerSelect(v, setRapidForm)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select manufacturer" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {manufacturers.map(m => (
-                            <SelectItem key={m.id} value={m.id}>{m.vendor_name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Product *</Label>
-                      <Select 
-                        value={rapidForm.product_id} 
-                        onValueChange={v => handleProductSelect(v, setRapidForm)}
-                        disabled={!rapidForm.manufacturer_id}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select product" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {products.filter(p => {
-                            const widthMatch = !rapidForm.width_ft || p.width_options?.includes(parseFloat(rapidForm.width_ft));
-                            const manufacturerMatch = !rapidForm.manufacturer_name || p.manufacturer_name === rapidForm.manufacturer_name;
-                            return widthMatch && manufacturerMatch;
-                          }).map(p => (
-                            <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="space-y-2">
+                    <Label>Manufacturer *</Label>
+                    <Select 
+                      value={rapidForm.manufacturer_id}
+                      onValueChange={v => handleManufacturerSelect(v, setRapidForm)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select manufacturer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {manufacturers.map(m => (
+                          <SelectItem key={m.id} value={m.id}>{m.vendor_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Product *</Label>
+                    <Select 
+                      value={rapidForm.product_id} 
+                      onValueChange={v => handleProductSelect(v, setRapidForm)}
+                      disabled={!rapidForm.manufacturer_id}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={rapidForm.manufacturer_id ? "Select product" : "Select manufacturer first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {products.filter(p => {
+                          const widthMatch = !rapidForm.width_ft || p.width_options?.includes(parseFloat(rapidForm.width_ft));
+                          const manufacturerMatch = !rapidForm.manufacturer_name || p.manufacturer_name === rapidForm.manufacturer_name;
+                          return widthMatch && manufacturerMatch;
+                        }).map(p => (
+                          <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="grid grid-cols-4 gap-4">
