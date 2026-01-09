@@ -51,44 +51,60 @@ export default function Dashboard() {
 
   const { data: rolls = [], isLoading: loadingRolls } = useQuery({
     queryKey: ['rolls'],
-    queryFn: () => base44.entities.Roll.list('-created_date', 1000)
+    queryFn: () => base44.entities.Roll.list('-created_date', 1000),
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false
   });
 
   const { data: transactions = [], isLoading: loadingTx } = useQuery({
     queryKey: ['transactions'],
-    queryFn: () => base44.entities.Transaction.list('-created_date', 1000)
+    queryFn: () => base44.entities.Transaction.list('-created_date', 1000),
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false
   });
 
   const { data: products = [] } = useQuery({
     queryKey: ['products'],
-    queryFn: () => base44.entities.Product.list()
+    queryFn: () => base44.entities.Product.list(),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false
   });
 
   const { data: inventoryItems = [] } = useQuery({
     queryKey: ['inventoryItems'],
-    queryFn: () => base44.entities.InventoryItem.list()
+    queryFn: () => base44.entities.InventoryItem.list(),
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false
   });
 
   const { data: allocations = [] } = useQuery({
     queryKey: ['allocations'],
-    queryFn: () => base44.entities.Allocation.list()
+    queryFn: () => base44.entities.Allocation.list(),
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false
   });
 
   const { data: settings = [] } = useQuery({
     queryKey: ['settings'],
-    queryFn: () => base44.entities.Settings.list()
+    queryFn: () => base44.entities.Settings.list(),
+    staleTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false
   });
 
   const { data: user } = useQuery({
     queryKey: ['user'],
-    queryFn: () => base44.auth.me()
+    queryFn: () => base44.auth.me(),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false
   });
 
   const { data: userPrefs } = useQuery({
     queryKey: ['userPreferences', user?.email],
     queryFn: () => base44.entities.UserPreferences.filter({ user_email: user.email }),
     enabled: !!user?.email,
-    select: (data) => data[0]
+    select: (data) => data[0],
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false
   });
 
   const savePreferencesMutation = useMutation({
