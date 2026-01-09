@@ -258,13 +258,32 @@ export default function Dashboard() {
   slice(0, 8);
 
   // Inventory by Turf Type
+  const getProductAbbreviation = (productName) => {
+    let cleanName = productName;
+    let suffix = '';
+
+    if (cleanName.endsWith('+')) {
+      suffix = '+';
+      cleanName = cleanName.slice(0, -1);
+    }
+
+    const words = cleanName.split(' ').filter(word => word.length > 0);
+    let abbreviation = '';
+
+    if (words.length === 1) {
+      abbreviation = words[0].substring(0, Math.min(3, words[0].length));
+    } else {
+      for (let i = 0; i < Math.min(words.length, 3); i++) {
+        abbreviation += words[i][0];
+      }
+    }
+
+    return abbreviation.toUpperCase() + suffix;
+  };
+
   const turfTypeDistribution = products.reduce((acc, product) => {
-    const rollCount = filteredRolls.filter(r => r.product_id === product.id).length;
-    const abbreviatedName = product.product_name
-      .split(' ')
-      .map(word => word[0])
-      .join('')
-      .toUpperCase();
+    const rollCount = availableRolls.filter(r => r.product_id === product.id).length;
+    const abbreviatedName = getProductAbbreviation(product.product_name);
     acc.push({
       name: abbreviatedName,
       fullName: product.product_name,
