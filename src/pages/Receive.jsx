@@ -89,6 +89,11 @@ export default function Receive() {
     queryFn: () => base44.entities.Vendor.list(),
   });
 
+  const { data: locations = [] } = useQuery({
+    queryKey: ['locations'],
+    queryFn: () => base44.entities.Location.list(),
+  });
+
   const createRollMutation = useMutation({
     mutationFn: async (rollData) => {
       const roll = await base44.entities.Roll.create(rollData);
@@ -104,7 +109,7 @@ export default function Receive() {
         product_name: rollData.product_name,
         dye_lot: rollData.dye_lot,
         width_ft: rollData.width_ft,
-        location_to: `${rollData.location_bin}${rollData.location_row}`,
+        location_to: rollData.location_name,
         notes: `Received from: ${rollData.vendor_name} PO: ${rollData.purchase_order}`
       });
       return roll;
@@ -127,8 +132,7 @@ export default function Receive() {
 
     setIsCreating(true);
     
-    // Parse location (e.g., "1-A" -> bin: "1", row: "A")
-    const [location_bin, location_row] = singleForm.location.split('-');
+    const location = locations.find(l => l.id === singleForm.location);
 
     const rollData = {
       tt_sku_tag_number: singleForm.tt_sku_tag_number,
@@ -143,8 +147,8 @@ export default function Receive() {
       current_length_ft: parseFloat(singleForm.length_ft),
       roll_type: 'Parent',
       condition: 'New',
-      location_bin,
-      location_row,
+      location_id: singleForm.location,
+      location_name: location?.name || '',
       status: 'Available',
       date_received: new Date().toISOString().split('T')[0],
       purchase_order: singleForm.purchase_order,
@@ -498,20 +502,18 @@ export default function Receive() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Location (Bin-Row) *</Label>
+                    <Label>Location *</Label>
                     <Select
                       value={singleForm.location}
                       onValueChange={v => setSingleForm(p => ({ ...p, location: v }))}
                     >
                       <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
                       <SelectContent>
-                        {Array.from({ length: 9 }, (_, i) => i + 1).flatMap(bin =>
-                          ['A', 'B', 'C'].map(row => (
-                            <SelectItem key={`${bin}-${row}`} value={`${bin}-${row}`}>
-                              {bin}-{row}
-                            </SelectItem>
-                          ))
-                        )}
+                        {locations.map(loc => (
+                          <SelectItem key={loc.id} value={loc.id}>
+                            {loc.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

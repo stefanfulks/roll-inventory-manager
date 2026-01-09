@@ -98,6 +98,11 @@ export default function JobDetail() {
     enabled: !!jobId,
   });
 
+  const { data: locations = [] } = useQuery({
+    queryKey: ['locations'],
+    queryFn: () => base44.entities.Location.list(),
+  });
+
   const createAllocationMutation = useMutation({
     mutationFn: async (items) => {
       for (const item of items) {
@@ -207,8 +212,8 @@ export default function JobDetail() {
               current_length_ft: returnItem.returned_length_ft,
               tt_sku_tag_number: finalTTSKU,
               condition: returnItem.condition || 'New',
-              location_bin: returnItem.location_bin || roll.location_bin,
-              location_row: returnItem.location_row || roll.location_row
+              location_id: returnItem.location_id || roll.location_id,
+              location_name: returnItem.location_name || roll.location_name
             });
             
             // Create transaction
@@ -226,7 +231,7 @@ export default function JobDetail() {
               length_before_ft: 0,
               length_after_ft: returnItem.returned_length_ft,
               performed_by: user.full_name || user.email,
-              notes: `Returned from job ${job.job_number} - Condition: ${returnItem.condition || 'New'}${returnItem.has_existing_tag === 'new' ? ' - New tag assigned' : ''} - Location: ${returnItem.location_bin || roll.location_bin}-${returnItem.location_row || roll.location_row}`
+              notes: `Returned from job ${job.job_number} - Condition: ${returnItem.condition || 'New'}${returnItem.has_existing_tag === 'new' ? ' - New tag assigned' : ''} - Location: ${returnItem.location_name || roll.location_name}`
             });
           }
         }
@@ -772,9 +777,9 @@ export default function JobDetail() {
                                   has_existing_tag: 'existing',
                                   new_tt_sku: '',
                                   condition: 'New',
-                                  location_bin: '',
-                                  location_row: ''
-                                }]);
+                                  location_id: '',
+                                  location_name: ''
+                                  }]);
                               } else {
                                 setReturnItems(prev => prev.filter(r => r.id !== rollId));
                               }
@@ -873,51 +878,28 @@ export default function JobDetail() {
                                   </Select>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div>
-                                    <Label className="text-xs font-semibold">Location Bin *</Label>
-                                    <Select
-                                      value={returnItem.location_bin || ''}
-                                      onValueChange={(v) => {
-                                        setReturnItems(prev => prev.map(r => 
-                                          r.id === rollId 
-                                            ? { ...r, location_bin: v }
-                                            : r
-                                        ));
-                                      }}
-                                    >
-                                      <SelectTrigger className="mt-1">
-                                        <SelectValue placeholder="1-9" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {Array.from({ length: 9 }, (_, i) => i + 1).map(bin => (
-                                          <SelectItem key={bin} value={bin.toString()}>{bin}</SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  <div>
-                                    <Label className="text-xs font-semibold">Location Row *</Label>
-                                    <Select
-                                      value={returnItem.location_row || ''}
-                                      onValueChange={(v) => {
-                                        setReturnItems(prev => prev.map(r => 
-                                          r.id === rollId 
-                                            ? { ...r, location_row: v }
-                                            : r
-                                        ));
-                                      }}
-                                    >
-                                      <SelectTrigger className="mt-1">
-                                        <SelectValue placeholder="A-C" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {['A', 'B', 'C'].map(row => (
-                                          <SelectItem key={row} value={row}>{row}</SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
+                                <div>
+                                  <Label className="text-xs font-semibold">Location *</Label>
+                                  <Select
+                                    value={returnItem.location_id || ''}
+                                    onValueChange={(v) => {
+                                      const loc = locations.find(l => l.id === v);
+                                      setReturnItems(prev => prev.map(r => 
+                                        r.id === rollId 
+                                          ? { ...r, location_id: v, location_name: loc?.name || '' }
+                                          : r
+                                      ));
+                                    }}
+                                  >
+                                    <SelectTrigger className="mt-1">
+                                      <SelectValue placeholder="Select location" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {locations.map(loc => (
+                                        <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
                                 </div>
                               </div>
                             )}

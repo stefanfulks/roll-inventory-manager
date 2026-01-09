@@ -161,33 +161,37 @@ export default function Locations() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label>Type</Label>
-                <Select 
-                  value={formData.type} 
-                  onValueChange={v => setFormData(p => ({ ...p, type: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="warehouse">Warehouse</SelectItem>
-                    <SelectItem value="truck">Truck</SelectItem>
-                    <SelectItem value="staging">Staging</SelectItem>
-                    <SelectItem value="returns">Returns</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {editingLocation && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Type</Label>
+                    <Select 
+                      value={formData.type} 
+                      onValueChange={v => setFormData(p => ({ ...p, type: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="warehouse">Warehouse</SelectItem>
+                        <SelectItem value="truck">Truck</SelectItem>
+                        <SelectItem value="staging">Staging</SelectItem>
+                        <SelectItem value="returns">Returns</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              <div className="space-y-2">
-                <Label>Notes</Label>
-                <Textarea 
-                  value={formData.notes}
-                  onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
-                  placeholder="Optional notes..."
-                  rows={2}
-                />
-              </div>
+                  <div className="space-y-2">
+                    <Label>Notes</Label>
+                    <Textarea 
+                      value={formData.notes}
+                      onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
+                      placeholder="Optional notes..."
+                      rows={2}
+                    />
+                  </div>
+                </>
+              )}
 
               <Button 
                 onClick={handleSave} 
