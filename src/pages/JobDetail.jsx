@@ -127,7 +127,7 @@ export default function JobDetail() {
             product_name: item.item_name,
             item_id: item.id,
             item_type: 'inventory_item',
-            requested_quantity: 1,
+            requested_quantity: item.requested_quantity || 1,
             unit_of_measure: item.unit_of_measure,
             status: 'Planned'
           });
@@ -238,10 +238,15 @@ export default function JobDetail() {
         } else if (returnItem.type === 'inventory_item') {
           const inventoryItem = inventoryItems.find(i => i.id === returnItem.id);
           if (inventoryItem) {
-            // Increment inventory quantity
-            await base44.entities.InventoryItem.update(returnItem.id, {
-              quantity_on_hand: inventoryItem.quantity_on_hand + returnItem.returned_quantity
-            });
+            const shouldAddToInventory = inventoryItem.partial_return_type !== 'full_unit_only' || returnItem.is_unopened;
+            const quantityToAdd = shouldAddToInventory ? returnItem.returned_quantity : 0;
+            
+            // Increment inventory quantity (only if should add)
+            if (quantityToAdd > 0) {
+              await base44.entities.InventoryItem.update(returnItem.id, {
+                quantity_on_hand: (inventoryItem.quantity_on_hand || 0) + quantityToAdd
+              });
+            }
             
             // Create transaction
             await base44.entities.Transaction.create({
@@ -251,7 +256,9 @@ export default function JobDetail() {
               job_number: job.job_number,
               product_name: inventoryItem.item_name,
               performed_by: user.full_name || user.email,
-              notes: `Returned ${returnItem.returned_quantity} ${inventoryItem.unit_of_measure} from job ${job.job_number}`
+              notes: shouldAddToInventory 
+                ? `Returned ${returnItem.returned_quantity} ${inventoryItem.unit_of_measure} from job ${job.job_number} - Added to inventory`
+                : `Returned ${returnItem.returned_quantity} ${inventoryItem.unit_of_measure} from job ${job.job_number} - Used/Opened, not added to inventory`
             });
           }
         }
@@ -351,8 +358,20 @@ export default function JobDetail() {
     if (exists) {
       setSelectedItems(prev => prev.filter(i => !(i.id === item.id && i.type === item.type)));
     } else {
-      setSelectedItems(prev => [...prev, item]);
+      const newItem = { ...item };
+      if (item.type === 'inventory_item') {
+        newItem.requested_quantity = 1;
+      }
+      setSelectedItems(prev => [...prev, newItem]);
     }
+  };
+
+  const handleQuantityChange = (itemId, itemType, quantity) => {
+    setSelectedItems(prev => prev.map(i => 
+      i.id === itemId && i.type === itemType 
+        ? { ...i, requested_quantity: quantity }
+        : i
+    ));
   };
 
   const handleAddSelectedProducts = () => {
@@ -651,20 +670,34 @@ export default function JobDetail() {
                                  <>
                                    <p className="font-medium text-slate-800">{item.item_name}</p>
                                    <p className="text-sm text-slate-600 mt-1">
-                                     SKU: {item.sku || 'N/A'} • {item.unit_of_measure}
+                                     SKU: {item.sku || 'N/A'} • {item.unit_of_measure} • Available: {item.quantity_on_hand || 0}
                                    </p>
+                                   {isSelected && (
+                                     <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                                       <Label className="text-xs font-semibold">Quantity Needed</Label>
+                                       <Input
+                                         type="number"
+                                         min="1"
+                                         max={item.quantity_on_hand || 999}
+                                         step="0.25"
+                                         value={isSelected.requested_quantity || 1}
+                                         onChange={(e) => handleQuantityChange(item.id, itemType, parseFloat(e.target.value) || 1)}
+                                         className="mt-1 w-24"
+                                       />
+                                     </div>
+                                   )}
                                  </>
                                 )}
-                              </div>
-                              {isSelected && (
-                                <div className="flex-shrink-0 w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center">
-                                  <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                  </svg>
                                 </div>
-                              )}
-                            </div>
-                          </div>
+                                {isSelected && (
+                                <div className="flex-shrink-0 w-5 h-5 bg-emerald-600 rounded-full flex items-center justify-center">
+                                 <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                 </svg>
+                                </div>
+                                )}
+                                </div>
+                                </div>
                         );
                       })}
                     </div>
@@ -794,7 +827,8 @@ export default function JobDetail() {
                                 setReturnInventoryItems(prev => [...prev, {
                                   id: item.id,
                                   type: 'inventory_item',
-                                  returned_quantity: allocation.requested_quantity || 1
+                                  returned_quantity: allocation.requested_quantity || 1,
+                                  is_unopened: true
                                 }]);
                               } else {
                                 setReturnInventoryItems(prev => prev.filter(r => r.id !== item.id));
@@ -809,22 +843,56 @@ export default function JobDetail() {
                             </p>
                             
                             {returnItem && (
-                              <div className="mt-3 p-3 bg-slate-50 rounded-lg">
-                                <Label className="text-xs font-semibold">Returned Quantity *</Label>
-                                <Input
-                                  type="number"
-                                  step="1"
-                                  value={returnItem.returned_quantity}
-                                  onChange={(e) => {
-                                    setReturnInventoryItems(prev => prev.map(r => 
-                                      r.id === item.id 
-                                        ? { ...r, returned_quantity: parseInt(e.target.value) || 0 }
-                                        : r
-                                    ));
-                                  }}
-                                  placeholder="0"
-                                  className="mt-1"
-                                />
+                              <div className="mt-3 p-3 bg-slate-50 rounded-lg space-y-3">
+                                <div>
+                                  <Label className="text-xs font-semibold">
+                                    Returned Quantity * 
+                                    {item.partial_return_type === 'quarter_yard' && ' (¼ yd³ increments)'}
+                                    {item.partial_return_type === 'quarter_pail' && ' (¼ pail increments)'}
+                                    {item.partial_return_type === 'by_foot' && ' (feet)'}
+                                  </Label>
+                                  <Input
+                                    type="number"
+                                    step={item.partial_return_type === 'quarter_yard' || item.partial_return_type === 'quarter_pail' ? '0.25' : '1'}
+                                    value={returnItem.returned_quantity}
+                                    onChange={(e) => {
+                                      let value = parseFloat(e.target.value) || 0;
+                                      if (item.partial_return_type === 'quarter_yard' || item.partial_return_type === 'quarter_pail') {
+                                        value = Math.round(value * 4) / 4;
+                                      }
+                                      setReturnInventoryItems(prev => prev.map(r => 
+                                        r.id === item.id 
+                                          ? { ...r, returned_quantity: value }
+                                          : r
+                                      ));
+                                    }}
+                                    placeholder="0"
+                                    className="mt-1"
+                                  />
+                                </div>
+                                {item.partial_return_type === 'full_unit_only' && (
+                                  <div>
+                                    <Label className="text-xs font-semibold">Condition *</Label>
+                                    <Select
+                                      value={returnItem.is_unopened ? 'unopened' : 'used'}
+                                      onValueChange={(v) => {
+                                        setReturnInventoryItems(prev => prev.map(r => 
+                                          r.id === item.id 
+                                            ? { ...r, is_unopened: v === 'unopened', returned_quantity: v === 'unopened' ? returnItem.returned_quantity : 0 }
+                                            : r
+                                        ));
+                                      }}
+                                    >
+                                      <SelectTrigger className="mt-1">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="unopened">Unopened/Whole - Add to inventory</SelectItem>
+                                        <SelectItem value="used">Opened/Used - Do not add to inventory</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

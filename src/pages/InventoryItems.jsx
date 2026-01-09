@@ -58,8 +58,9 @@ export default function InventoryItems() {
     category: '',
     unit_of_measure: '',
     unit_size_definition: '',
-    quantity_on_hand: 0,
-    min_stock_level_units: 0,
+    quantity_on_hand: '',
+    min_stock_level_units: '',
+    partial_return_type: '',
     notes: ''
   });
 
@@ -109,9 +110,9 @@ export default function InventoryItems() {
       category: '',
       unit_of_measure: '',
       unit_size_definition: '',
-      quantity_on_hand: 0,
-      min_stock_level_units: 0,
-      cost_per_unit: 0,
+      quantity_on_hand: '',
+      min_stock_level_units: '',
+      partial_return_type: '',
       notes: ''
     });
     setEditingItem(null);
@@ -134,8 +135,9 @@ export default function InventoryItems() {
       category: item.category,
       unit_of_measure: item.unit_of_measure,
       unit_size_definition: item.unit_size_definition,
-      quantity_on_hand: item.quantity_on_hand || 0,
-      min_stock_level_units: item.min_stock_level_units || 0,
+      quantity_on_hand: item.quantity_on_hand ?? '',
+      min_stock_level_units: item.min_stock_level_units ?? '',
+      partial_return_type: item.partial_return_type || '',
       notes: item.notes || ''
     });
     setShowDialog(true);
@@ -254,9 +256,10 @@ export default function InventoryItems() {
                   <Label className="dark:text-slate-300">Quantity on Hand</Label>
                   <Input
                     type="number"
-                    step="0.01"
+                    step="0.25"
                     value={formData.quantity_on_hand}
-                    onChange={(e) => setFormData({...formData, quantity_on_hand: parseFloat(e.target.value) || 0})}
+                    onChange={(e) => setFormData({...formData, quantity_on_hand: e.target.value === '' ? '' : parseFloat(e.target.value)})}
+                    placeholder="Leave blank if unknown"
                     className="dark:bg-slate-800 dark:text-white dark:border-slate-700"
                   />
                 </div>
@@ -264,12 +267,34 @@ export default function InventoryItems() {
                   <Label className="dark:text-slate-300">Min Stock Level</Label>
                   <Input
                     type="number"
-                    step="0.01"
+                    step="0.25"
                     value={formData.min_stock_level_units}
-                    onChange={(e) => setFormData({...formData, min_stock_level_units: parseFloat(e.target.value) || 0})}
+                    onChange={(e) => setFormData({...formData, min_stock_level_units: e.target.value === '' ? '' : parseFloat(e.target.value)})}
+                    placeholder="Leave blank if not tracked"
                     className="dark:bg-slate-800 dark:text-white dark:border-slate-700"
                   />
                 </div>
+              </div>
+
+              <div>
+                <Label className="dark:text-slate-300">Partial Return Type</Label>
+                <Select
+                  value={formData.partial_return_type}
+                  onValueChange={(value) => setFormData({...formData, partial_return_type: value})}
+                >
+                  <SelectTrigger className="dark:bg-slate-800 dark:text-white dark:border-slate-700">
+                    <SelectValue placeholder="Select return handling" />
+                  </SelectTrigger>
+                  <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
+                    <SelectItem value="quarter_yard" className="dark:text-white">Quarter Yard (¼ yd³ increments)</SelectItem>
+                    <SelectItem value="quarter_pail" className="dark:text-white">Quarter Pail (¼ pail increments)</SelectItem>
+                    <SelectItem value="by_foot" className="dark:text-white">By Foot (tape, barrier, edging)</SelectItem>
+                    <SelectItem value="full_unit_only" className="dark:text-white">Full Unit Only (no partials)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  How partial returns are handled for this item
+                </p>
               </div>
 
               <div>
