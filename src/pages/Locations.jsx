@@ -142,12 +142,7 @@ export default function Locations() {
     toast.success('Location order updated');
   };
 
-  const typeColors = {
-    warehouse: 'bg-blue-100 text-blue-700',
-    truck: 'bg-purple-100 text-purple-700',
-    staging: 'bg-amber-100 text-amber-700',
-    returns: 'bg-orange-100 text-orange-700'
-  };
+
 
   return (
     <div className="space-y-6">
@@ -197,36 +192,32 @@ export default function Locations() {
                   />
                 </div>
 
-                {editingLocation && (
-                  <>
-                    <div className="space-y-2">
-                        <Label>Designated For</Label>
-                        <Select 
-                        value={formData.designated_for} 
-                        onValueChange={v => setFormData(p => ({ ...p, designated_for: v }))}
-                        >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Items</SelectItem>
-                          <SelectItem value="turf_only">Turf Rolls Only</SelectItem>
-                          <SelectItem value="other_inventory_only">Other Inventory Only</SelectItem>
-                        </SelectContent>
-                        </Select>
-                        </div>
+                <div className="space-y-2">
+                  <Label>Designated For</Label>
+                  <Select 
+                    value={formData.designated_for} 
+                    onValueChange={v => setFormData(p => ({ ...p, designated_for: v }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Items</SelectItem>
+                      <SelectItem value="turf_only">Turf Rolls Only</SelectItem>
+                      <SelectItem value="other_inventory_only">Other Inventory Only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                        <div className="space-y-2">
-                        <Label>Notes</Label>
-                      <Textarea 
-                        value={formData.notes}
-                        onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
-                        placeholder="Optional notes..."
-                        rows={2}
-                      />
-                    </div>
-                  </>
-                )}
+                <div className="space-y-2">
+                  <Label>Notes</Label>
+                  <Textarea 
+                    value={formData.notes}
+                    onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))}
+                    placeholder="Optional notes..."
+                    rows={2}
+                  />
+                </div>
 
                 <Button 
                   onClick={handleSave} 
