@@ -143,6 +143,12 @@ export default function PendingInventory() {
                           <span>{roll.width_ft}ft × {roll.current_length_ft}ft</span>
                           <span>•</span>
                           <span>Vendor: {roll.vendor_name}</span>
+                          {roll.condition && (
+                            <>
+                              <span>•</span>
+                              <span>Condition: {roll.condition}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>

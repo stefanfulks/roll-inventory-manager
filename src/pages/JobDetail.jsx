@@ -160,6 +160,16 @@ export default function JobDetail() {
     }
   });
 
+  const updateAllocationStatusMutation = useMutation({
+    mutationFn: async ({ allocationId, status }) => {
+      await base44.entities.Allocation.update(allocationId, { status });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
+      toast.success('Allocation status updated');
+    }
+  });
+
   const completeJobMutation = useMutation({
     mutationFn: async () => {
       await base44.entities.Job.update(jobId, { status: 'Completed' });
@@ -209,15 +219,33 @@ export default function JobDetail() {
         if (returnItem.type === 'roll') {
           const roll = allRolls.find(r => r.id === returnItem.id);
           if (roll) {
-            const finalStatus = returnItem.condition === 'Scrapped' ? 'Scrapped' : 'Available';
+            // Determine final status
+            let finalStatus;
+            if (returnItem.condition === 'Scrapped') {
+              finalStatus = 'Scrapped';
+            } else if (returnItem.condition === 'Damaged') {
+              finalStatus = 'ReturnedHold';
+            } else {
+              // Check if required fields are missing
+              const hasLocation = returnItem.location_id && returnItem.location_id.trim() !== '';
+              const hasTag = returnItem.has_existing_tag === 'existing' || (returnItem.has_existing_tag === 'new' && returnItem.new_tt_sku && returnItem.new_tt_sku.trim() !== '');
+              const hasCondition = returnItem.condition && returnItem.condition.trim() !== '';
+              
+              if (!hasLocation || !hasTag || !hasCondition) {
+                finalStatus = 'AwaitingLocation';
+              } else {
+                finalStatus = 'Available';
+              }
+            }
+            
             const finalTTSKU = returnItem.has_existing_tag === 'new' ? returnItem.new_tt_sku : (roll.tt_sku_tag_number || roll.roll_tag);
 
             // Update roll status, length, tag, location, and condition
             await base44.entities.Roll.update(returnItem.id, {
               status: finalStatus,
               current_length_ft: returnItem.returned_length_ft,
-              tt_sku_tag_number: finalTTSKU,
-              condition: returnItem.condition || 'New',
+              tt_sku_tag_number: finalTTSKU || roll.tt_sku_tag_number,
+              condition: returnItem.condition || roll.condition || 'New',
               location_id: returnItem.location_id || roll.location_id,
               location_name: returnItem.location_name || roll.location_name
             });
@@ -732,7 +760,7 @@ export default function JobDetail() {
                                          max={item.quantity_on_hand || 999}
                                          step="0.25"
                                          value={isSelected.requested_quantity || 1}
-                                         onChange={(e) => handleQuantityChange(item.id, itemType, parseFloat(e.target.value) || 1)}
+                                         onChange={(e) => handleQuantityChange(item.id, itemType, e.target.value === '' ? '' : parseFloat(e.target.value))}
                                          className="mt-1 w-24"
                                        />
                                      </div>
@@ -796,21 +824,39 @@ export default function JobDetail() {
                 allocations.map((allocation) => (
                   <TableRow key={allocation.id}>
                     <TableCell>
-                      {allocation.item_type === 'roll' ? (
-                        <div className="flex gap-2">
-                          <StatusBadge 
-                            status={rolls.find(r => allocation.allocated_roll_ids?.includes(r.id))?.roll_type || 'Parent'} 
-                            size="sm" 
-                          />
-                        </div>
-                      ) : (
-                       <StatusBadge 
-                         status="Item" 
-                         size="sm" 
-                       />
-                      )}
+                     {allocation.item_type === 'roll' ? (
+                       <div className="flex gap-2">
+                         <StatusBadge 
+                           status={allRolls.find(r => allocation.allocated_roll_ids?.includes(r.id))?.roll_type || 'Parent'} 
+                           size="sm" 
+                         />
+                       </div>
+                     ) : (
+                      <StatusBadge 
+                        status="Item" 
+                        size="sm" 
+                      />
+                     )}
                     </TableCell>
-                    <TableCell className="font-medium">{allocation.product_name}</TableCell>
+                    <TableCell className="font-medium">
+                     {allocation.item_type === 'roll' && allocation.allocated_roll_ids?.length > 0 ? (
+                       <Link 
+                         to={createPageUrl('RollDetail') + `?id=${allocation.allocated_roll_ids[0]}`}
+                         className="text-blue-600 hover:text-blue-800 hover:underline"
+                       >
+                         {allocation.product_name}
+                       </Link>
+                     ) : allocation.item_type === 'inventory_item' && allocation.item_id ? (
+                       <Link 
+                         to={createPageUrl('InventoryItems')}
+                         className="text-blue-600 hover:text-blue-800 hover:underline"
+                       >
+                         {allocation.product_name}
+                       </Link>
+                     ) : (
+                       allocation.product_name
+                     )}
+                    </TableCell>
                     <TableCell className="text-slate-600">
                       {allocation.item_type === 'roll' ? (
                         <>
@@ -823,7 +869,23 @@ export default function JobDetail() {
                         </>
                       )}
                     </TableCell>
-                    <TableCell><StatusBadge status={allocation.status} size="sm" /></TableCell>
+                    <TableCell>
+                      <Select
+                        value={allocation.status}
+                        onValueChange={(newStatus) => updateAllocationStatusMutation.mutate({ allocationId: allocation.id, status: newStatus })}
+                        disabled={updateAllocationStatusMutation.isPending}
+                      >
+                        <SelectTrigger className="w-32 h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Planned">Planned</SelectItem>
+                          <SelectItem value="Reserved">Reserved</SelectItem>
+                          <SelectItem value="Fulfilled">Fulfilled</SelectItem>
+                          <SelectItem value="Cancelled">Cancelled</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
                     <TableCell>
                       <Button 
                         variant="ghost" 
@@ -907,15 +969,16 @@ export default function JobDetail() {
                                     step={item.partial_return_type === 'quarter_yard' || item.partial_return_type === 'quarter_pail' ? '0.25' : '1'}
                                     value={returnItem.returned_quantity}
                                     onChange={(e) => {
-                                      let value = parseFloat(e.target.value) || 0;
-                                      if (item.partial_return_type === 'quarter_yard' || item.partial_return_type === 'quarter_pail') {
-                                        value = Math.round(value * 4) / 4;
-                                      }
-                                      setReturnInventoryItems(prev => prev.map(r => 
-                                        r.id === item.id 
-                                          ? { ...r, returned_quantity: value }
-                                          : r
-                                      ));
+                                     const inputValue = e.target.value;
+                                     let value = inputValue === '' ? '' : parseFloat(inputValue);
+                                     if (typeof value === 'number' && (item.partial_return_type === 'quarter_yard' || item.partial_return_type === 'quarter_pail')) {
+                                       value = Math.round(value * 4) / 4;
+                                     }
+                                     setReturnInventoryItems(prev => prev.map(r => 
+                                       r.id === item.id 
+                                         ? { ...r, returned_quantity: value }
+                                         : r
+                                     ));
                                     }}
                                     placeholder="0"
                                     className="mt-1"
@@ -1003,11 +1066,12 @@ export default function JobDetail() {
                                     step="0.1"
                                     value={returnItem.returned_length_ft}
                                     onChange={(e) => {
-                                      setReturnItems(prev => prev.map(r => 
-                                        r.id === rollId 
-                                          ? { ...r, returned_length_ft: parseFloat(e.target.value) || 0 }
-                                          : r
-                                      ));
+                                     const value = e.target.value === '' ? '' : parseFloat(e.target.value);
+                                     setReturnItems(prev => prev.map(r => 
+                                       r.id === rollId 
+                                         ? { ...r, returned_length_ft: value }
+                                         : r
+                                     ));
                                     }}
                                     placeholder="0"
                                     className="mt-1"
@@ -1015,90 +1079,90 @@ export default function JobDetail() {
                                 </div>
                                 
                                 <div>
-                                  <Label className="text-xs font-semibold">Does this roll have a tag? *</Label>
-                                  <Select
-                                    value={returnItem.has_existing_tag}
-                                    onValueChange={(v) => {
-                                      setReturnItems(prev => prev.map(r => 
-                                        r.id === rollId 
-                                          ? { ...r, has_existing_tag: v }
-                                          : r
-                                      ));
-                                    }}
-                                  >
-                                    <SelectTrigger className="mt-1">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="existing">Yes - Use existing tag</SelectItem>
-                                      <SelectItem value="new">No - Assign new TT SKU tag</SelectItem>
-                                    </SelectContent>
-                                  </Select>
+                                 <Label className="text-xs font-semibold">Does this roll have a tag?</Label>
+                                 <Select
+                                   value={returnItem.has_existing_tag}
+                                   onValueChange={(v) => {
+                                     setReturnItems(prev => prev.map(r => 
+                                       r.id === rollId 
+                                         ? { ...r, has_existing_tag: v }
+                                         : r
+                                     ));
+                                   }}
+                                 >
+                                   <SelectTrigger className="mt-1">
+                                     <SelectValue />
+                                   </SelectTrigger>
+                                   <SelectContent>
+                                     <SelectItem value="existing">Yes - Use existing tag</SelectItem>
+                                     <SelectItem value="new">No - Assign new TT SKU tag</SelectItem>
+                                   </SelectContent>
+                                 </Select>
                                 </div>
                                 
                                 {returnItem.has_existing_tag === 'new' && (
-                                  <div>
-                                    <Label className="text-xs font-semibold">New TT SKU Tag Number *</Label>
-                                    <Input
-                                      value={returnItem.new_tt_sku}
-                                      onChange={(e) => {
-                                        setReturnItems(prev => prev.map(r => 
-                                          r.id === rollId 
-                                            ? { ...r, new_tt_sku: e.target.value }
-                                            : r
-                                        ));
-                                      }}
-                                      placeholder="Enter new tag number"
-                                      className="mt-1 font-mono"
-                                    />
-                                  </div>
+                                 <div>
+                                   <Label className="text-xs font-semibold">New TT SKU Tag Number</Label>
+                                   <Input
+                                     value={returnItem.new_tt_sku}
+                                     onChange={(e) => {
+                                       setReturnItems(prev => prev.map(r => 
+                                         r.id === rollId 
+                                           ? { ...r, new_tt_sku: e.target.value }
+                                           : r
+                                       ));
+                                     }}
+                                     placeholder="Enter new tag number"
+                                     className="mt-1 font-mono"
+                                   />
+                                 </div>
                                 )}
                                 
                                 <div>
-                                  <Label className="text-xs font-semibold">Condition *</Label>
-                                  <Select
-                                    value={returnItem.condition}
-                                    onValueChange={(v) => {
-                                      setReturnItems(prev => prev.map(r => 
-                                        r.id === rollId 
-                                          ? { ...r, condition: v }
-                                          : r
-                                      ));
-                                    }}
-                                  >
-                                    <SelectTrigger className="mt-1">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="New">New - Add back to inventory</SelectItem>
-                                      <SelectItem value="Damaged">Damaged - Add back to inventory</SelectItem>
-                                      <SelectItem value="Scrapped">Scrapped - Do not add to inventory</SelectItem>
-                                    </SelectContent>
-                                  </Select>
+                                 <Label className="text-xs font-semibold">Condition</Label>
+                                 <Select
+                                   value={returnItem.condition}
+                                   onValueChange={(v) => {
+                                     setReturnItems(prev => prev.map(r => 
+                                       r.id === rollId 
+                                         ? { ...r, condition: v }
+                                         : r
+                                     ));
+                                   }}
+                                 >
+                                   <SelectTrigger className="mt-1">
+                                     <SelectValue />
+                                   </SelectTrigger>
+                                   <SelectContent>
+                                     <SelectItem value="New">New - Add back to inventory</SelectItem>
+                                     <SelectItem value="Damaged">Damaged - Hold for review</SelectItem>
+                                     <SelectItem value="Scrapped">Scrapped - Do not add to inventory</SelectItem>
+                                   </SelectContent>
+                                 </Select>
                                 </div>
 
                                 <div>
-                                  <Label className="text-xs font-semibold">Location *</Label>
-                                  <Select
-                                    value={returnItem.location_id || ''}
-                                    onValueChange={(v) => {
-                                      const loc = locations.find(l => l.id === v);
-                                      setReturnItems(prev => prev.map(r => 
-                                        r.id === rollId 
-                                          ? { ...r, location_id: v, location_name: loc?.name || '' }
-                                          : r
-                                      ));
-                                    }}
-                                  >
-                                    <SelectTrigger className="mt-1">
-                                      <SelectValue placeholder="Select location" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {locations.map(loc => (
-                                        <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                 <Label className="text-xs font-semibold">Location</Label>
+                                 <Select
+                                   value={returnItem.location_id || ''}
+                                   onValueChange={(v) => {
+                                     const loc = locations.find(l => l.id === v);
+                                     setReturnItems(prev => prev.map(r => 
+                                       r.id === rollId 
+                                         ? { ...r, location_id: v, location_name: loc?.name || '' }
+                                         : r
+                                     ));
+                                   }}
+                                 >
+                                   <SelectTrigger className="mt-1">
+                                     <SelectValue placeholder="Select location" />
+                                   </SelectTrigger>
+                                   <SelectContent>
+                                     {locations.map(loc => (
+                                       <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                                     ))}
+                                   </SelectContent>
+                                 </Select>
                                 </div>
                               </div>
                             )}
