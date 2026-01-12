@@ -19,11 +19,13 @@ export default function TurfDashboard({
 }) {
   const [showLowInventoryDialog, setShowLowInventoryDialog] = useState(false);
   const [showSittingInventoryDialog, setShowSittingInventoryDialog] = useState(false);
+  const [shippedTimeRange, setShippedTimeRange] = useState('all');
 
-  const availableRolls = rolls.filter(r => r.status === 'Available');
+  const allRolls = rolls;
+  const availableRolls = allRolls.filter(r => r.status === 'Available');
   const totalRolls = availableRolls.length;
-  const parentRolls = availableRolls.filter(r => r.roll_type === 'Parent');
-  const childRolls = availableRolls.filter(r => r.roll_type === 'Child');
+  const parentRolls = allRolls.filter(r => r.roll_type === 'Parent');
+  const childRolls = allRolls.filter(r => r.roll_type === 'Child');
   const totalSqft = availableRolls.reduce((sum, r) => sum + r.current_length_ft * r.width_ft, 0);
 
   const getSetting = (key, defaultValue) => {
@@ -50,9 +52,29 @@ export default function TurfDashboard({
     return receivedDate < cutoffDate;
   });
 
-  // Shipped out total
+  // Shipped out total with time ranges
+  const getTimeRangeCutoff = (range) => {
+    const now = new Date();
+    switch (range) {
+      case 'week':
+        return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      case 'month':
+        return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      case 'year':
+        return new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+      default:
+        return null;
+    }
+  };
+
+  const timeRangeCutoff = getTimeRangeCutoff(shippedTimeRange);
   const shippedOutSqft = transactions
-    .filter(t => t.transaction_type === 'SendOutToJob' && t.fulfillment_for === 'TexasTurf')
+    .filter(t => {
+      if (t.transaction_type !== 'SendOutToJob' || t.fulfillment_for !== 'TexasTurf') return false;
+      if (!timeRangeCutoff) return true;
+      const txDate = new Date(t.created_date);
+      return txDate >= timeRangeCutoff;
+    })
     .reduce((sum, t) => sum + Math.abs(t.length_change_ft || 0) * (t.width_ft || 0), 0);
 
   // Top products by jobs
@@ -71,32 +93,17 @@ export default function TurfDashboard({
     .sort((a, b) => b.value - a.value)
     .slice(0, 8);
 
-  // Turf type distribution
-  const getProductAbbreviation = (productName) => {
-    let cleanName = productName;
-    let suffix = '';
-    if (cleanName.endsWith('+')) {
-      suffix = '+';
-      cleanName = cleanName.slice(0, -1);
-    }
-    const words = cleanName.split(' ').filter(word => word.length > 0);
-    let abbreviation = '';
-    if (words.length === 1) {
-      abbreviation = words[0].substring(0, Math.min(3, words[0].length));
-    } else {
-      for (let i = 0; i < Math.min(words.length, 3); i++) {
-        abbreviation += words[i][0];
-      }
-    }
-    return abbreviation.toUpperCase() + suffix;
-  };
-
-  const turfTypeChartData = products.reduce((acc, product) => {
-    const rollCount = availableRolls.filter(r => r.product_id === product.id).length;
-    const abbreviatedName = getProductAbbreviation(product.product_name);
-    acc.push({ name: abbreviatedName, fullName: product.product_name, value: rollCount });
-    return acc;
-  }, []).sort((a, b) => b.value - a.value);
+  // Turf type distribution with actual data
+  const turfTypeChartData = products
+    .map(product => {
+      const rollCount = availableRolls.filter(r => r.product_id === product.id).length;
+      return {
+        name: product.product_name,
+        value: rollCount
+      };
+    })
+    .filter(item => item.value > 0)
+    .sort((a, b) => b.value - a.value);
 
   // Length buckets
   const lengthBuckets = [
@@ -173,14 +180,14 @@ export default function TurfDashboard({
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={turfTypeChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
+                  <XAxis dataKey="name" stroke="#64748b" hide />
                   <YAxis stroke="#64748b" />
                   <Tooltip 
                     content={({ active, payload }) => {
                       if (active && payload && payload.length) {
                         return (
                           <div className="bg-white dark:bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
-                            <p className="font-medium dark:text-white">{payload[0].payload.fullName}</p>
+                            <p className="font-medium dark:text-white">{payload[0].payload.name}</p>
                             <p className="text-sm text-slate-600 dark:text-slate-300">
                               Rolls: <span className="font-semibold">{payload[0].value}</span>
                             </p>
@@ -199,14 +206,35 @@ export default function TurfDashboard({
 
         {visibleCharts.includes('shipped_total') && (
           <div className="bg-white dark:bg-[#2d2d2d] rounded-2xl p-6 border border-slate-100 dark:border-slate-700/50 shadow-sm">
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-white mb-4">Total Shipped Out</h3>
-            <div className="flex items-center justify-center h-64">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800 dark:text-white">Total Shipped Out</h3>
+              <div className="flex gap-1">
+                {['week', 'month', 'year', 'all'].map(range => (
+                  <button
+                    key={range}
+                    onClick={() => setShippedTimeRange(range)}
+                    className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                      shippedTimeRange === range
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
+                    }`}
+                  >
+                    {range === 'all' ? 'All Time' : range.charAt(0).toUpperCase() + range.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-center h-48">
               <div className="text-center">
                 <div className="text-5xl font-bold text-blue-600 dark:text-blue-400 mb-2">
                   {shippedOutSqft.toLocaleString()}
                 </div>
                 <div className="text-slate-600 dark:text-slate-300">Square Feet Shipped</div>
-                <div className="text-sm text-slate-400 mt-2">All-time total from warehouse</div>
+                <div className="text-sm text-slate-400 mt-2">
+                  {shippedTimeRange === 'all' ? 'All-time total' : 
+                   shippedTimeRange === 'week' ? 'Last 7 days' :
+                   shippedTimeRange === 'month' ? 'Last 30 days' : 'Last year'}
+                </div>
               </div>
             </div>
           </div>
