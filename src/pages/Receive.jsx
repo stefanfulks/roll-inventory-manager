@@ -484,7 +484,7 @@ export default function Receive() {
                       <Input 
                         type="number"
                         value={singleForm.width_ft === 0 || singleForm.width_ft === '' ? '' : singleForm.width_ft}
-                        onChange={e => setSingleForm(p => ({ ...p, width_ft: e.target.value }))}
+                        onChange={e => setSingleForm(p => ({ ...p, width_ft: e.target.value === '' ? '' : e.target.value }))}
                         placeholder="Enter width"
                       />
                     </div>
@@ -493,7 +493,7 @@ export default function Receive() {
                       <Input 
                         type="number"
                         value={singleForm.length_ft === 0 || singleForm.length_ft === '' ? '' : singleForm.length_ft}
-                        onChange={e => setSingleForm(p => ({ ...p, length_ft: e.target.value }))}
+                        onChange={e => setSingleForm(p => ({ ...p, length_ft: e.target.value === '' ? '' : e.target.value }))}
                       />
                     </div>
                   </div>
@@ -604,7 +604,7 @@ export default function Receive() {
                       <Input 
                         type="number"
                         value={rapidForm.width_ft === 0 || rapidForm.width_ft === '' ? '' : rapidForm.width_ft}
-                        onChange={e => setRapidForm(p => ({ ...p, width_ft: e.target.value }))}
+                        onChange={e => setRapidForm(p => ({ ...p, width_ft: e.target.value === '' ? '' : e.target.value }))}
                         placeholder="Enter width"
                       />
                     </div>
@@ -613,7 +613,7 @@ export default function Receive() {
                       <Input 
                         type="number"
                         value={rapidForm.length_ft === 0 || rapidForm.length_ft === '' ? '' : rapidForm.length_ft}
-                        onChange={e => setRapidForm(p => ({ ...p, length_ft: e.target.value }))}
+                        onChange={e => setRapidForm(p => ({ ...p, length_ft: e.target.value === '' ? '' : e.target.value }))}
                       />
                     </div>
                     <div className="space-y-2">
