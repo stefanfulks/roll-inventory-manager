@@ -144,7 +144,7 @@ export default function Dashboard() {
 
   const longSittingDays = getSetting('long_sitting_days', 180);
 
-  const filteredRolls = rolls.filter((r) => r.inventory_owner === 'TexasTurf');
+  const filteredRolls = rolls;
 
   const handleSendLowStockAlert = async () => {
     if (!slackChannel.trim()) {

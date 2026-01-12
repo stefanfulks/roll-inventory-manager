@@ -28,7 +28,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Edit, Trash2, Package, Search } from 'lucide-react';
+import { Plus, Edit, Trash2, Package, Search, ArrowUpDown } from 'lucide-react';
 import { toast } from 'sonner';
 
 const CATEGORIES = [
@@ -52,6 +52,8 @@ export default function InventoryItems() {
   const [editingItem, setEditingItem] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sortColumn, setSortColumn] = useState('item_name');
+  const [sortDirection, setSortDirection] = useState('asc');
   const [formData, setFormData] = useState({
     item_name: '',
     sku: '',
@@ -65,8 +67,11 @@ export default function InventoryItems() {
   });
 
   const { data: items = [], isLoading } = useQuery({
-    queryKey: ['inventoryItems'],
-    queryFn: () => base44.entities.InventoryItem.list()
+    queryKey: ['inventoryItems', sortColumn, sortDirection],
+    queryFn: () => {
+      const sortParam = sortDirection === 'desc' ? `-${sortColumn}` : sortColumn;
+      return base44.entities.InventoryItem.list(sortParam);
+    }
   });
 
   const createMutation = useMutation({
@@ -156,6 +161,15 @@ export default function InventoryItems() {
   const lowStockItems = items.filter(item => 
     item.min_stock_level_units && item.quantity_on_hand < item.min_stock_level_units
   );
+
+  const handleSort = (column) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -383,12 +397,24 @@ export default function InventoryItems() {
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50 dark:bg-slate-800/50">
-                <TableHead className="dark:text-slate-300">Item Name</TableHead>
+                <TableHead className="dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('item_name')}>
+                  <div className="flex items-center gap-1">
+                    Item Name <ArrowUpDown className="h-3 w-3" />
+                  </div>
+                </TableHead>
                 <TableHead className="dark:text-slate-300">SKU</TableHead>
-                <TableHead className="dark:text-slate-300">Category</TableHead>
+                <TableHead className="dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('category')}>
+                  <div className="flex items-center gap-1">
+                    Category <ArrowUpDown className="h-3 w-3" />
+                  </div>
+                </TableHead>
                 <TableHead className="dark:text-slate-300">Unit</TableHead>
                 <TableHead className="dark:text-slate-300">Unit Size</TableHead>
-                <TableHead className="dark:text-slate-300">Qty on Hand</TableHead>
+                <TableHead className="dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('quantity_on_hand')}>
+                  <div className="flex items-center gap-1">
+                    Qty on Hand <ArrowUpDown className="h-3 w-3" />
+                  </div>
+                </TableHead>
                 <TableHead className="dark:text-slate-300">Min Stock</TableHead>
                 <TableHead className="dark:text-slate-300">Actions</TableHead>
               </TableRow>

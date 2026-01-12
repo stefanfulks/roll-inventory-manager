@@ -193,7 +193,7 @@ export default function Receive() {
     const rollsToCreate = [];
     for (let i = 0; i < rapidForm.quantity; i++) {
       rollsToCreate.push({
-        tt_sku_tag_number: '',
+        tt_sku_tag_number: generateTTSKUTagNumber(),
         vendor_id: rapidForm.manufacturer_id,
         vendor_name: rapidForm.manufacturer_name,
         product_id: rapidForm.product_id,
@@ -484,8 +484,8 @@ export default function Receive() {
                       <Input 
                         type="number"
                         value={singleForm.width_ft === 0 || singleForm.width_ft === '' ? '' : singleForm.width_ft}
-                        disabled
-                        placeholder="Auto-set"
+                        onChange={e => setSingleForm(p => ({ ...p, width_ft: e.target.value }))}
+                        placeholder="Enter width"
                       />
                     </div>
                     <div className="space-y-2">
@@ -604,8 +604,8 @@ export default function Receive() {
                       <Input 
                         type="number"
                         value={rapidForm.width_ft === 0 || rapidForm.width_ft === '' ? '' : rapidForm.width_ft}
-                        disabled
-                        placeholder="Auto-set"
+                        onChange={e => setRapidForm(p => ({ ...p, width_ft: e.target.value }))}
+                        placeholder="Enter width"
                       />
                     </div>
                     <div className="space-y-2">

@@ -10,7 +10,8 @@ import {
   ChevronDown,
   Trash2,
   Archive,
-  Search
+  Search,
+  ArrowUpDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,6 +63,8 @@ export default function Jobs() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
   const [selectedJobs, setSelectedJobs] = useState([]);
+  const [sortColumn, setSortColumn] = useState('created_date');
+  const [sortDirection, setSortDirection] = useState('desc');
   
   const [newJob, setNewJob] = useState({
     job_number: '',
@@ -85,8 +88,11 @@ export default function Jobs() {
   });
 
   const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['jobs'],
-    queryFn: () => base44.entities.Job.list('-created_date', 200),
+    queryKey: ['jobs', sortColumn, sortDirection],
+    queryFn: () => {
+      const sortParam = sortDirection === 'desc' ? `-${sortColumn}` : sortColumn;
+      return base44.entities.Job.list(sortParam, 200);
+    },
   });
 
   const createJobMutation = useMutation({
@@ -218,6 +224,15 @@ export default function Jobs() {
   const handleBulkArchive = () => {
     if (!confirm(`Archive ${selectedJobs.length} jobs?`)) return;
     archiveJobsMutation.mutate(selectedJobs);
+  };
+
+  const handleSort = (column) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
   };
 
   return (
@@ -399,11 +414,27 @@ export default function Jobs() {
                       onCheckedChange={handleSelectAll}
                     />
                   </TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Job Number</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('job_number')}>
+                    <div className="flex items-center gap-1">
+                      Job Number <ArrowUpDown className="h-3 w-3" />
+                    </div>
+                  </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Company</TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Customer</TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Status</TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Created</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('customer_name')}>
+                    <div className="flex items-center gap-1">
+                      Customer <ArrowUpDown className="h-3 w-3" />
+                    </div>
+                  </TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('status')}>
+                    <div className="flex items-center gap-1">
+                      Status <ArrowUpDown className="h-3 w-3" />
+                    </div>
+                  </TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('created_date')}>
+                    <div className="flex items-center gap-1">
+                      Created <ArrowUpDown className="h-3 w-3" />
+                    </div>
+                  </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Actions</TableHead>
                 </TableRow>
               </TableHeader>

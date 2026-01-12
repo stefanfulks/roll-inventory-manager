@@ -12,7 +12,8 @@ import {
   Trash2,
   Edit,
   CheckSquare,
-  Square
+  Square,
+  ArrowUpDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -60,6 +61,8 @@ export default function Inventory() {
   const [selectedRolls, setSelectedRolls] = useState([]);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingRoll, setEditingRoll] = useState(null);
+  const [sortColumn, setSortColumn] = useState('created_date');
+  const [sortDirection, setSortDirection] = useState('desc');
   const [editForm, setEditForm] = useState({
     tt_sku_tag_number: '',
     manufacturer_roll_number: '',
@@ -71,8 +74,11 @@ export default function Inventory() {
   });
 
   const { data: rolls = [], isLoading } = useQuery({
-    queryKey: ['rolls'],
-    queryFn: () => base44.entities.Roll.list('-created_date', 1000),
+    queryKey: ['rolls', sortColumn, sortDirection],
+    queryFn: () => {
+      const sortParam = sortDirection === 'desc' ? `-${sortColumn}` : sortColumn;
+      return base44.entities.Roll.list(sortParam, 1000);
+    },
   });
 
   const { data: products = [] } = useQuery({
@@ -176,6 +182,15 @@ export default function Inventory() {
     await deleteRollsMutation.mutateAsync(selectedRolls);
   };
 
+  const handleSort = (column) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -266,13 +281,33 @@ export default function Inventory() {
                       onCheckedChange={handleSelectAll}
                     />
                   </TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">TT SKU #</TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Product</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('tt_sku_tag_number')}>
+                    <div className="flex items-center gap-1">
+                      TT SKU # <ArrowUpDown className="h-3 w-3" />
+                    </div>
+                  </TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('product_name')}>
+                    <div className="flex items-center gap-1">
+                      Product <ArrowUpDown className="h-3 w-3" />
+                    </div>
+                  </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Dye Lot</TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Width</TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Length</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('width_ft')}>
+                    <div className="flex items-center gap-1">
+                      Width <ArrowUpDown className="h-3 w-3" />
+                    </div>
+                  </TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('current_length_ft')}>
+                    <div className="flex items-center gap-1">
+                      Length <ArrowUpDown className="h-3 w-3" />
+                    </div>
+                  </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Type</TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Status</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('status')}>
+                    <div className="flex items-center gap-1">
+                      Status <ArrowUpDown className="h-3 w-3" />
+                    </div>
+                  </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Location</TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Actions</TableHead>
                 </TableRow>
