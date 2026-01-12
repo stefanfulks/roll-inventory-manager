@@ -221,8 +221,11 @@ export default function JobDetail() {
           if (roll) {
             // Determine final status
             let finalStatus;
+            let finalLength = returnItem.returned_length_ft;
+            
             if (returnItem.condition === 'Scrapped') {
               finalStatus = 'Scrapped';
+              finalLength = 0; // Scrapped rolls have no length
             } else if (returnItem.condition === 'Damaged') {
               finalStatus = 'ReturnedHold';
             } else {
@@ -240,10 +243,22 @@ export default function JobDetail() {
             
             const finalTTSKU = returnItem.has_existing_tag === 'new' ? returnItem.new_tt_sku : (roll.tt_sku_tag_number || roll.roll_tag);
 
+            // Build transaction notes
+            let transactionNotes = `Returned from job ${job.job_number} - Condition: ${returnItem.condition || 'New'}`;
+            if (returnItem.has_existing_tag === 'new') {
+              transactionNotes += ' - New tag assigned';
+            }
+            if (returnItem.condition === 'Scrapped' && returnItem.scrapped_length_ft && returnItem.scrapped_width_ft) {
+              transactionNotes += ` - Scrapped dimensions: ${returnItem.scrapped_length_ft}ft × ${returnItem.scrapped_width_ft}ft`;
+            }
+            if (returnItem.location_name) {
+              transactionNotes += ` - Location: ${returnItem.location_name}`;
+            }
+
             // Update roll status, length, tag, location, and condition
             await base44.entities.Roll.update(returnItem.id, {
               status: finalStatus,
-              current_length_ft: returnItem.returned_length_ft,
+              current_length_ft: finalLength,
               tt_sku_tag_number: finalTTSKU || roll.tt_sku_tag_number,
               condition: returnItem.condition || roll.condition || 'New',
               location_id: returnItem.location_id || roll.location_id,
@@ -265,7 +280,7 @@ export default function JobDetail() {
               length_before_ft: 0,
               length_after_ft: returnItem.returned_length_ft,
               performed_by: user.full_name || user.email,
-              notes: `Returned from job ${job.job_number} - Condition: ${returnItem.condition || 'New'}${returnItem.has_existing_tag === 'new' ? ' - New tag assigned' : ''} - Location: ${returnItem.location_name || roll.location_name}`
+              notes: transactionNotes
             });
           }
         } else if (returnItem.type === 'inventory_item') {
@@ -467,6 +482,14 @@ export default function JobDetail() {
   const totalUsed = totalAllocatedSentOut - totalReturned;
   const turfVariance = totalUsed - (job.requested_total_turf_length_ft || 0);
 
+  // Get all allocated roll IDs for returns
+  const allocatedRollIds = allocations
+    .filter(a => a.item_type === 'roll' && a.status === 'Fulfilled')
+    .flatMap(a => a.allocated_roll_ids || []);
+  
+  // Filter rolls to include those allocated to this job (regardless of status)
+  const availableRollsForReturn = allRolls.filter(r => allocatedRollIds.includes(r.id));
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -630,46 +653,77 @@ export default function JobDetail() {
         </Card>
       </div>
 
-      {/* Returned Other Items */}
-      {returnTransactions.filter(t => !t.roll_id && t.product_name).length > 0 && (
+      {/* Returned Items */}
+      {returnTransactions.length > 0 && (
         <Card className="rounded-2xl border-slate-100 shadow-sm overflow-hidden dark:bg-[#2d2d2d]">
           <CardHeader>
-            <CardTitle className="text-lg dark:text-white">Returned Other Items</CardTitle>
+            <CardTitle className="text-lg dark:text-white">Returned Items</CardTitle>
           </CardHeader>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 dark:bg-slate-800/50">
+                  <TableHead className="dark:text-slate-300">Type</TableHead>
                   <TableHead className="dark:text-slate-300">Item Name</TableHead>
-                  <TableHead className="dark:text-slate-300">Returned Quantity</TableHead>
-                  <TableHead className="dark:text-slate-300">Status</TableHead>
+                  <TableHead className="dark:text-slate-300">Details</TableHead>
+                  <TableHead className="dark:text-slate-300">Status/Condition</TableHead>
                   <TableHead className="dark:text-slate-300">Notes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {returnTransactions
-                  .filter(t => !t.roll_id && t.product_name)
-                  .map((transaction) => {
-                    const isAddedToInventory = transaction.notes?.includes('Added to inventory');
-                    return (
-                      <TableRow key={transaction.id} className="dark:hover:bg-slate-800/30">
-                        <TableCell className="font-medium dark:text-white">{transaction.product_name}</TableCell>
-                        <TableCell className="dark:text-slate-300">
-                          {transaction.notes?.match(/Returned (\S+)/)?.[1] || '-'}
-                        </TableCell>
-                        <TableCell>
+                {returnTransactions.map((transaction) => {
+                  const isTurfRoll = !!transaction.roll_id;
+                  const roll = isTurfRoll ? allRolls.find(r => r.id === transaction.roll_id) : null;
+                  
+                  return (
+                    <TableRow key={transaction.id} className="dark:hover:bg-slate-800/30">
+                      <TableCell>
+                        <StatusBadge 
+                          status={isTurfRoll ? "Roll" : "Item"} 
+                          size="sm" 
+                        />
+                      </TableCell>
+                      <TableCell className="font-medium dark:text-white">
+                        {isTurfRoll && roll ? (
+                          <Link 
+                            to={createPageUrl('RollDetail') + `?id=${roll.id}`}
+                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            {transaction.product_name}
+                          </Link>
+                        ) : (
+                          transaction.product_name
+                        )}
+                      </TableCell>
+                      <TableCell className="dark:text-slate-300">
+                        {isTurfRoll ? (
+                          <>
+                            {transaction.width_ft}ft × {transaction.length_after_ft}ft
+                            {transaction.dye_lot && ` • Dye Lot: ${transaction.dye_lot}`}
+                          </>
+                        ) : (
+                          transaction.notes?.match(/Returned (\S+)/)?.[1] || '-'
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {isTurfRoll ? (
+                          <StatusBadge status={roll?.status || 'Unknown'} size="sm" />
+                        ) : (
                           <span className={`inline-flex items-center px-3 py-1 text-sm font-medium rounded-full ${
-                            isAddedToInventory 
+                            transaction.notes?.includes('Added to inventory')
                               ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                               : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                           }`}>
-                            {isAddedToInventory ? 'Added to Inventory' : 'Not Added (Used/Opened)'}
+                            {transaction.notes?.includes('Added to inventory') ? 'Added to Inventory' : 'Not Added'}
                           </span>
-                        </TableCell>
-                        <TableCell className="text-slate-600 dark:text-slate-400 text-sm">{transaction.notes}</TableCell>
-                      </TableRow>
-                    );
-                  })}
+                        )}
+                      </TableCell>
+                      <TableCell className="text-slate-600 dark:text-slate-400 text-sm">
+                        {transaction.notes}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -1019,7 +1073,7 @@ export default function JobDetail() {
                   if (allocation.item_type === 'roll') {
                   const rollIds = allocation.allocated_roll_ids || [];
                   return rollIds.map(rollId => {
-                    const roll = allRolls.find(r => r.id === rollId);
+                    const roll = availableRollsForReturn.find(r => r.id === rollId);
                     if (!roll) return null;
                     
                     const returnItem = returnItems.find(r => r.id === rollId);
@@ -1035,12 +1089,14 @@ export default function JobDetail() {
                                 setReturnItems(prev => [...prev, {
                                   id: rollId,
                                   type: 'roll',
-                                  returned_length_ft: roll.current_length_ft || 0,
+                                  returned_length_ft: '',
                                   has_existing_tag: 'existing',
                                   new_tt_sku: '',
                                   condition: 'New',
                                   location_id: '',
-                                  location_name: ''
+                                  location_name: '',
+                                  scrapped_length_ft: '',
+                                  scrapped_width_ft: ''
                                   }]);
                               } else {
                                 setReturnItems(prev => prev.filter(r => r.id !== rollId));
@@ -1054,7 +1110,7 @@ export default function JobDetail() {
                               {roll.product_name} • {roll.width_ft}ft × {roll.current_length_ft}ft • Dye Lot: {roll.dye_lot}
                             </p>
                             <p className="text-xs text-slate-500 mt-1">
-                              Sent out: {roll.current_length_ft}ft • Type: {roll.roll_type}
+                              Type: {roll.roll_type} • Status: {roll.status}
                             </p>
                             
                             {returnItem && (
@@ -1140,6 +1196,32 @@ export default function JobDetail() {
                                    </SelectContent>
                                  </Select>
                                 </div>
+
+                                {returnItem.condition === 'Scrapped' && (
+                                  <div>
+                                    <Label className="text-xs font-semibold">Scrapped Dimensions *</Label>
+                                    <div className="flex gap-2 mt-1">
+                                      <Input
+                                        type="number"
+                                        placeholder="Length (ft)"
+                                        value={returnItem.scrapped_length_ft}
+                                        onChange={(e) => setReturnItems(prev => prev.map(r => 
+                                          r.id === rollId ? { ...r, scrapped_length_ft: e.target.value === '' ? '' : parseFloat(e.target.value) } : r
+                                        ))}
+                                        className="w-1/2"
+                                      />
+                                      <Input
+                                        type="number"
+                                        placeholder="Width (ft)"
+                                        value={returnItem.scrapped_width_ft}
+                                        onChange={(e) => setReturnItems(prev => prev.map(r => 
+                                          r.id === rollId ? { ...r, scrapped_width_ft: e.target.value === '' ? '' : parseFloat(e.target.value) } : r
+                                        ))}
+                                        className="w-1/2"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
 
                                 <div>
                                  <Label className="text-xs font-semibold">Location</Label>
