@@ -17,6 +17,34 @@ import { Card } from '@/components/ui/card';
 export default function Help() {
   const sections = [
     {
+      icon: HelpCircle,
+      title: 'Roll Status Definitions',
+      description: 'Understanding the lifecycle and status progression of inventory rolls',
+      tips: [
+        'Available (Green): Roll is in stock and ready to be assigned, placed on temp hold, or cut',
+        'TempHold (Yellow): Roll is temporarily reserved for a specific job but not yet fully allocated - can be released or allocated',
+        'Reserved (Amber): Roll is designated for a specific job based on allocation plan, awaiting full allocation or dispatch',
+        'Allocated (Blue): Roll has been officially assigned to a job and is awaiting dispatch',
+        'Dispatched (Blue/White): Roll has left the warehouse and is en route to or at the job site',
+        'Consumed (Dark Gray): Roll has been fully used/installed on a job and is no longer in active inventory',
+        'Scrapped (Red): Roll is unusable due to damage or quality issues and permanently removed from inventory',
+        'ReturnedHold (Orange): Roll has been returned from a job and is awaiting inspection or re-entry into stock',
+        'AwaitingLocation (Red): Roll is in warehouse but has not yet been assigned to a specific storage location'
+      ]
+    },
+    {
+      icon: Package,
+      title: 'Roll Types',
+      description: 'Understanding parent and child roll relationships',
+      tips: [
+        'Parent Roll: Original full-length roll as received from manufacturer',
+        'Child Roll: Smaller piece cut from a parent roll - inherits product, dye lot, and manufacturer info',
+        'Parent rolls show remaining length after cuts are made',
+        'Child rolls show exact cut length and maintain full traceability to parent',
+        'Both parent and child rolls can be independently allocated, shipped, and tracked'
+      ]
+    },
+    {
       icon: LayoutDashboard,
       title: 'Dashboard',
       description: 'Overview of your inventory with key metrics and analytics',
@@ -84,12 +112,16 @@ export default function Help() {
       title: 'Jobs',
       description: 'Track customer jobs and allocate inventory',
       tips: [
-        'Create jobs with just a job number and company (TexasTurf or TurfCasa)',
+        'Create jobs with job number and company (TexasTurf or TurfCasa)',
+        'Job Status Flow: Draft → Ready → Dispatched → AwaitingReturnInventory → Completed → Archived',
+        'Draft: Job is being planned, allocations can be added/edited',
+        'Ready: All allocations are fulfilled with reserved items, job can be dispatched',
+        'Dispatched: Job materials have been sent to the job site',
         'Add allocation requests specifying product, width, and length needed',
-        'System suggests best matching rolls based on product and dye lot',
-        'Reserve rolls to ensure they\'re held for specific jobs',
-        'Track fulfillment percentage to see allocation progress',
-        'Link bundles to jobs for organized shipment tracking'
+        'Reserve rolls from inventory or temp hold rolls for later allocation',
+        'Track fulfillment percentage and validate readiness before dispatch',
+        'Add outside materials picked up from vendors (won\'t affect inventory)',
+        'View all allocated items, reserved items, and outside materials in one place'
       ]
     },
     {
@@ -216,6 +248,36 @@ export default function Help() {
           </Card>
         ))}
       </div>
+
+      <Card className="p-6 bg-slate-100 border-slate-300">
+        <h3 className="font-semibold text-slate-900 mb-3">Key Concepts & Terminology</h3>
+        <div className="space-y-3 text-sm text-slate-700">
+          <div>
+            <strong>Dye Lot:</strong> Color batch identifier from manufacturer - rolls with same dye lot ensure color consistency on jobs
+          </div>
+          <div>
+            <strong>Allocation:</strong> A request for specific turf (product, width, length) needed for a job
+          </div>
+          <div>
+            <strong>Fulfillment:</strong> Process of assigning actual inventory rolls to meet job allocation requests
+          </div>
+          <div>
+            <strong>Temp Hold:</strong> Temporarily reserve a roll for a job without full commitment - can be released if needed elsewhere
+          </div>
+          <div>
+            <strong>TT SKU Tag:</strong> Pre-printed tag number on physical rolls for tracking (TexasTurf SKU identifier)
+          </div>
+          <div>
+            <strong>Manufacturer Roll Number:</strong> Original roll number from manufacturer - inherited by all child rolls cut from parent
+          </div>
+          <div>
+            <strong>Owner (TexasTurf/TurfCasa):</strong> Which company owns the inventory - tracks usage and fulfillment separately
+          </div>
+          <div>
+            <strong>Outside Materials:</strong> Materials picked up from external vendors for a job that don't go through warehouse inventory
+          </div>
+        </div>
+      </Card>
 
       <Card className="p-6 bg-emerald-50 border-emerald-200">
         <h3 className="font-semibold text-emerald-900 mb-2">Need More Help?</h3>
