@@ -59,6 +59,14 @@ export default function JobDetail() {
   const [returnInventoryItems, setReturnInventoryItems] = useState([]);
   const [slackChannel, setSlackChannel] = useState('');
   const [sendingReport, setSendingReport] = useState(false);
+  const [showOutsideMaterialsDialog, setShowOutsideMaterialsDialog] = useState(false);
+  const [outsideMaterial, setOutsideMaterial] = useState({
+    vendor: '',
+    material: '',
+    quantity: '',
+    quantity_definition: '',
+    notes: ''
+  });
 
   const { data: job, isLoading } = useQuery({
     queryKey: ['job', jobId],
@@ -96,6 +104,12 @@ export default function JobDetail() {
       job_id: jobId, 
       transaction_type: 'ReturnFromJob' 
     }),
+    enabled: !!jobId,
+  });
+
+  const { data: outsideMaterials = [] } = useQuery({
+    queryKey: ['outsideMaterials', jobId],
+    queryFn: () => base44.entities.JobOutsideMaterial.filter({ job_id: jobId }),
     enabled: !!jobId,
   });
 
@@ -187,6 +201,47 @@ export default function JobDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       toast.success('Job re-opened');
+    }
+  });
+
+  const markJobReadyMutation = useMutation({
+    mutationFn: async () => {
+      await base44.entities.Job.update(jobId, { status: 'Ready' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job', jobId] });
+      toast.success('Job marked as ready');
+    }
+  });
+
+  const addOutsideMaterialMutation = useMutation({
+    mutationFn: async (material) => {
+      await base44.entities.JobOutsideMaterial.create({
+        job_id: jobId,
+        ...material
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['outsideMaterials', jobId] });
+      setShowOutsideMaterialsDialog(false);
+      setOutsideMaterial({
+        vendor: '',
+        material: '',
+        quantity: '',
+        quantity_definition: '',
+        notes: ''
+      });
+      toast.success('Outside material added');
+    }
+  });
+
+  const deleteOutsideMaterialMutation = useMutation({
+    mutationFn: async (materialId) => {
+      await base44.entities.JobOutsideMaterial.delete(materialId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['outsideMaterials', jobId] });
+      toast.success('Material removed');
     }
   });
 
@@ -328,25 +383,25 @@ export default function JobDetail() {
     }
   });
 
-  const sendOutMutation = useMutation({
+  const dispatchJobMutation = useMutation({
     mutationFn: async () => {
       const user = await base44.auth.me();
       
-      // Update job status to SentOut
-      await base44.entities.Job.update(jobId, { status: 'SentOut' });
+      // Update job status to Dispatched
+      await base44.entities.Job.update(jobId, { status: 'Dispatched' });
 
       // Process each allocation
       for (const allocation of allocations) {
         if (allocation.item_type === 'roll' && allocation.allocated_roll_ids?.length > 0) {
           for (const rollId of allocation.allocated_roll_ids) {
             // Update roll status
-            await base44.entities.Roll.update(rollId, { status: 'SentOut' });
+            await base44.entities.Roll.update(rollId, { status: 'Dispatched' });
             
             // Create transaction
             const roll = allRolls.find(r => r.id === rollId);
             if (roll) {
               await base44.entities.Transaction.create({
-                transaction_type: 'SendOutToJob',
+                transaction_type: 'DispatchToJob',
                 fulfillment_for: job.fulfillment_for,
                 roll_id: rollId,
                 tt_sku_tag_number: roll.tt_sku_tag_number || roll.roll_tag,
@@ -373,13 +428,13 @@ export default function JobDetail() {
             
             // Create transaction
             await base44.entities.Transaction.create({
-              transaction_type: 'SendOutToJob',
+              transaction_type: 'DispatchToJob',
               fulfillment_for: job.fulfillment_for,
               job_id: jobId,
               job_number: job.job_number,
               product_name: inventoryItem.item_name,
               performed_by: user.full_name || user.email,
-              notes: `Sent ${allocation.requested_quantity || 1} ${inventoryItem.unit_of_measure} to job ${job.job_number}`
+              notes: `Dispatched ${allocation.requested_quantity || 1} ${inventoryItem.unit_of_measure} to job ${job.job_number}`
             });
           }
         }
@@ -490,6 +545,10 @@ export default function JobDetail() {
   // Filter rolls to include those allocated to this job (regardless of status)
   const availableRollsForReturn = allRolls.filter(r => allocatedRollIds.includes(r.id));
 
+  // Check if there are any reserved allocations
+  const hasReservedAllocations = allocations.some(a => a.status === 'Reserved');
+  const reservedAllocations = allocations.filter(a => a.status === 'Reserved');
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -512,15 +571,25 @@ export default function JobDetail() {
         <div className="flex gap-2">
           {job.status === 'Draft' && allocations.length > 0 && (
             <Button 
-              onClick={() => sendOutMutation.mutate()}
-              disabled={sendOutMutation.isPending}
+              onClick={() => markJobReadyMutation.mutate()}
+              disabled={hasReservedAllocations || markJobReadyMutation.isPending}
+              className="bg-emerald-600 hover:bg-emerald-700"
+              title={hasReservedAllocations ? 'Cannot mark as ready while reserved items exist' : ''}
+            >
+              Mark as Ready
+            </Button>
+          )}
+          {job.status === 'Ready' && (
+            <Button 
+              onClick={() => dispatchJobMutation.mutate()}
+              disabled={dispatchJobMutation.isPending}
               className="bg-blue-600 hover:bg-blue-700"
             >
               <Send className="h-4 w-4 mr-2" />
-              Send Out Job
+              Dispatch Job
             </Button>
           )}
-          {job.status === 'SentOut' && job.fulfillment_for === 'TexasTurf' && (
+          {job.status === 'Dispatched' && job.fulfillment_for === 'TexasTurf' && (
             <Button 
               onClick={() => setShowReceiveReturns(true)}
               className="bg-amber-600 hover:bg-amber-700"
@@ -528,7 +597,7 @@ export default function JobDetail() {
               Receive Returns
             </Button>
           )}
-          {((job.status === 'SentOut' && job.fulfillment_for === 'TurfCasa') || job.status === 'AwaitingReturnInventory') && (
+          {((job.status === 'Dispatched' && job.fulfillment_for === 'TurfCasa') || job.status === 'AwaitingReturnInventory') && (
             <>
               {job.status === 'AwaitingReturnInventory' && (
                 <div className="flex gap-2 items-center">
@@ -652,6 +721,136 @@ export default function JobDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Reserved Items Section */}
+      {reservedAllocations.length > 0 && (
+        <Card className="rounded-2xl border-amber-200 bg-amber-50 shadow-sm overflow-hidden dark:bg-amber-900/20 dark:border-amber-700/50">
+          <CardHeader>
+            <CardTitle className="text-lg text-amber-800 dark:text-amber-400 flex items-center gap-2">
+              <Package className="h-5 w-5" />
+              Reserved Items (Must be cleared before marking as Ready)
+            </CardTitle>
+          </CardHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-amber-100 dark:bg-amber-900/30">
+                  <TableHead className="dark:text-amber-300">Type</TableHead>
+                  <TableHead className="dark:text-amber-300">Item</TableHead>
+                  <TableHead className="dark:text-amber-300">Details</TableHead>
+                  <TableHead className="dark:text-amber-300">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reservedAllocations.map((allocation) => (
+                  <TableRow key={allocation.id} className="dark:hover:bg-amber-900/20">
+                    <TableCell>
+                      <StatusBadge 
+                        status={allocation.item_type === 'roll' ? 'Roll' : 'Item'} 
+                        size="sm" 
+                      />
+                    </TableCell>
+                    <TableCell className="font-medium dark:text-white">{allocation.product_name}</TableCell>
+                    <TableCell className="text-slate-600 dark:text-slate-300">
+                      {allocation.item_type === 'roll' ? (
+                        `${allocation.width_ft}ft × ${allocation.requested_length_ft}ft`
+                      ) : (
+                        `${allocation.requested_quantity || 1} ${allocation.unit_of_measure || 'unit'}`
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button 
+                          size="sm"
+                          variant="outline"
+                          onClick={() => updateAllocationStatusMutation.mutate({ allocationId: allocation.id, status: 'Planned' })}
+                          disabled={updateAllocationStatusMutation.isPending}
+                        >
+                          Release
+                        </Button>
+                        <Button 
+                          size="sm"
+                          onClick={() => updateAllocationStatusMutation.mutate({ allocationId: allocation.id, status: 'Fulfilled' })}
+                          disabled={updateAllocationStatusMutation.isPending}
+                          className="bg-emerald-600 hover:bg-emerald-700"
+                        >
+                          Allocate
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      )}
+
+      {/* Outside Materials */}
+      {outsideMaterials.length > 0 && (
+        <Card className="rounded-2xl border-slate-100 shadow-sm overflow-hidden dark:bg-[#2d2d2d]">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-lg dark:text-white">Outside Materials (Informational)</CardTitle>
+            <Button 
+              size="sm" 
+              onClick={() => setShowOutsideMaterialsDialog(true)}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Material
+            </Button>
+          </CardHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 dark:bg-slate-800/50">
+                  <TableHead className="dark:text-slate-300">Vendor</TableHead>
+                  <TableHead className="dark:text-slate-300">Material</TableHead>
+                  <TableHead className="dark:text-slate-300">Quantity</TableHead>
+                  <TableHead className="dark:text-slate-300">Notes</TableHead>
+                  <TableHead className="dark:text-slate-300">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {outsideMaterials.map((material) => (
+                  <TableRow key={material.id} className="dark:hover:bg-slate-800/30">
+                    <TableCell className="font-medium dark:text-white">{material.vendor}</TableCell>
+                    <TableCell className="dark:text-slate-300">{material.material}</TableCell>
+                    <TableCell className="dark:text-slate-300">
+                      {material.quantity} {material.quantity_definition}
+                    </TableCell>
+                    <TableCell className="text-slate-600 dark:text-slate-400 text-sm">
+                      {material.notes || '-'}
+                    </TableCell>
+                    <TableCell>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => deleteOutsideMaterialMutation.mutate(material.id)}
+                        disabled={deleteOutsideMaterialMutation.isPending}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      )}
+
+      {!outsideMaterials.length && (
+        <Button 
+          variant="outline"
+          onClick={() => setShowOutsideMaterialsDialog(true)}
+          className="w-full"
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Add Outside Materials (picked up from external vendors)
+        </Button>
+      )}
 
       {/* Returned Items */}
       {returnTransactions.length > 0 && (
@@ -1276,6 +1475,82 @@ export default function JobDetail() {
                 className="flex-1 bg-emerald-600 hover:bg-emerald-700"
               >
                 Process Returns
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Outside Materials Dialog */}
+      <Dialog open={showOutsideMaterialsDialog} onOpenChange={setShowOutsideMaterialsDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Outside Material</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Vendor *</Label>
+              <Input
+                value={outsideMaterial.vendor}
+                onChange={(e) => setOutsideMaterial(p => ({ ...p, vendor: e.target.value }))}
+                placeholder="Where material was picked up"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Material *</Label>
+              <Input
+                value={outsideMaterial.material}
+                onChange={(e) => setOutsideMaterial(p => ({ ...p, material: e.target.value }))}
+                placeholder="Material name/description"
+                className="mt-1"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Quantity *</Label>
+                <Input
+                  type="number"
+                  value={outsideMaterial.quantity}
+                  onChange={(e) => setOutsideMaterial(p => ({ ...p, quantity: parseFloat(e.target.value) }))}
+                  placeholder="0"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>Unit *</Label>
+                <Input
+                  value={outsideMaterial.quantity_definition}
+                  onChange={(e) => setOutsideMaterial(p => ({ ...p, quantity_definition: e.target.value }))}
+                  placeholder="yards, tons, sq ft"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Textarea
+                value={outsideMaterial.notes}
+                onChange={(e) => setOutsideMaterial(p => ({ ...p, notes: e.target.value }))}
+                placeholder="Additional notes"
+                rows={2}
+                className="mt-1"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowOutsideMaterialsDialog(false)}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={() => addOutsideMaterialMutation.mutate(outsideMaterial)}
+                disabled={!outsideMaterial.vendor || !outsideMaterial.material || !outsideMaterial.quantity || !outsideMaterial.quantity_definition}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+              >
+                Add Material
               </Button>
             </div>
           </div>
