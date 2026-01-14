@@ -72,7 +72,10 @@ export default function RollDetail() {
 
   const { data: jobs = [] } = useQuery({
     queryKey: ['jobs'],
-    queryFn: () => base44.entities.Job.filter({ status: 'Draft' }),
+    queryFn: async () => {
+      const allJobs = await base44.entities.Job.list();
+      return allJobs.filter(j => j.status !== 'Archived');
+    },
   });
 
   const assignToJobMutation = useMutation({
