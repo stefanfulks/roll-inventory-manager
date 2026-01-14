@@ -42,6 +42,7 @@ export default function RollDetail() {
   const params = new URLSearchParams(window.location.search);
   const rollId = params.get('id');
   const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [showTempHoldDialog, setShowTempHoldDialog] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState('');
 
   const { data: roll, isLoading } = useQuery({
@@ -78,6 +79,50 @@ export default function RollDetail() {
     },
   });
 
+  const tempHoldForJobMutation = useMutation({
+    mutationFn: async (jobId) => {
+      const user = await base44.auth.me();
+      const job = jobs.find(j => j.id === jobId);
+
+      await base44.entities.Allocation.create({
+        job_id: jobId,
+        job_name: job.job_name || job.job_number,
+        product_id: roll.product_id,
+        product_name: roll.product_name,
+        width_ft: roll.width_ft,
+        dye_lot_preference: roll.dye_lot,
+        requested_length_ft: roll.current_length_ft,
+        allocated_roll_ids: [roll.id],
+        item_type: 'roll',
+        status: 'Reserved'
+      });
+
+      await base44.entities.Roll.update(roll.id, { status: 'TempHold', temp_hold_job_id: jobId });
+
+      await base44.entities.Transaction.create({
+        transaction_type: 'TempHoldForJob',
+        fulfillment_for: job.fulfillment_for,
+        roll_id: roll.id,
+        tt_sku_tag_number: roll.tt_sku_tag_number || roll.roll_tag,
+        job_id: jobId,
+        job_number: job.job_number,
+        product_name: roll.product_name,
+        dye_lot: roll.dye_lot,
+        width_ft: roll.width_ft,
+        performed_by: user.full_name || user.email,
+        notes: `Placed on temporary hold for job ${job.job_number}`
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roll', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      queryClient.invalidateQueries({ queryKey: ['allocations'] });
+      setShowTempHoldDialog(false);
+      setSelectedJobId('');
+      toast.success('Roll placed on temporary hold for job');
+    }
+  });
+
   const assignToJobMutation = useMutation({
     mutationFn: async (jobId) => {
       const user = await base44.auth.me();
@@ -98,7 +143,11 @@ export default function RollDetail() {
       });
 
       // Update roll status
-      await base44.entities.Roll.update(roll.id, { status: 'Allocated' });
+      const updatedRollData = { status: 'Allocated' };
+      if (roll.status === 'TempHold') {
+        updatedRollData.temp_hold_job_id = null;
+      }
+      await base44.entities.Roll.update(roll.id, updatedRollData);
 
       // Create transaction
       await base44.entities.Transaction.create({
@@ -171,6 +220,14 @@ export default function RollDetail() {
           {roll.status === 'Available' && roll.current_length_ft > 0 && (
             <>
               <Button 
+                onClick={() => setShowTempHoldDialog(true)}
+                variant="outline"
+                className="border-amber-600 text-amber-600 hover:bg-amber-50"
+              >
+                <Briefcase className="h-4 w-4 mr-2" />
+                Temp Hold for Job
+              </Button>
+              <Button 
                 onClick={() => setShowAssignDialog(true)}
                 variant="outline"
                 className="border-blue-600 text-blue-600 hover:bg-blue-50"
@@ -185,6 +242,17 @@ export default function RollDetail() {
                 </Button>
               </Link>
             </>
+          )}
+          {roll.status === 'TempHold' && roll.temp_hold_job_id && (
+            <Link to={createPageUrl(`JobDetail?id=${roll.temp_hold_job_id}`)}>
+              <Button
+                variant="outline"
+                className="border-amber-600 text-amber-600 hover:bg-amber-50"
+              >
+                <Briefcase className="h-4 w-4 mr-2" />
+                View Held Job
+              </Button>
+            </Link>
           )}
         </div>
       </div>
@@ -398,6 +466,86 @@ export default function RollDetail() {
           </Card>
         </div>
       </div>
+
+      {/* Assign to Job Dialog */}
+      <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Roll to Job</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="job-select-assign">Select Job</Label>
+              <Select
+                value={selectedJobId}
+                onValueChange={setSelectedJobId}
+              >
+                <SelectTrigger id="job-select-assign" className="w-full">
+                  <SelectValue placeholder="Select a job" />
+                </SelectTrigger>
+                <SelectContent>
+                  {jobs.map((job) => (
+                    <SelectItem key={job.id} value={job.id}>
+                      {job.job_number} - {job.customer_name || 'No Customer'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowAssignDialog(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={() => assignToJobMutation.mutate(selectedJobId)}
+                disabled={!selectedJobId || assignToJobMutation.isPending}
+              >
+                Confirm Assignment
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Temp Hold Dialog */}
+      <Dialog open={showTempHoldDialog} onOpenChange={setShowTempHoldDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Temp Hold Roll for Job</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="job-select-temp-hold">Select Job</Label>
+              <Select
+                value={selectedJobId}
+                onValueChange={setSelectedJobId}
+              >
+                <SelectTrigger id="job-select-temp-hold" className="w-full">
+                  <SelectValue placeholder="Select a job" />
+                </SelectTrigger>
+                <SelectContent>
+                  {jobs.map((job) => (
+                    <SelectItem key={job.id} value={job.id}>
+                      {job.job_number} - {job.customer_name || 'No Customer'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowTempHoldDialog(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={() => tempHoldForJobMutation.mutate(selectedJobId)}
+                disabled={!selectedJobId || tempHoldForJobMutation.isPending}
+              >
+                Confirm Temp Hold
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
