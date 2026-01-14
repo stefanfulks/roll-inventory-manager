@@ -386,8 +386,8 @@ export default function Jobs() {
           <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="Draft">Draft</SelectItem>
-            <SelectItem value="Fulfilling">Fulfilling</SelectItem>
-            <SelectItem value="SentOut">Sent Out</SelectItem>
+            <SelectItem value="Ready">Ready</SelectItem>
+            <SelectItem value="Dispatched">Dispatched</SelectItem>
             <SelectItem value="AwaitingReturnInventory">Awaiting Return</SelectItem>
             <SelectItem value="Completed">Completed</SelectItem>
             <SelectItem value="Archived">Archived</SelectItem>
@@ -430,9 +430,9 @@ export default function Jobs() {
                       Status <ArrowUpDown className="h-3 w-3" />
                     </div>
                   </TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('created_date')}>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('scheduled_date')}>
                     <div className="flex items-center gap-1">
-                      Created <ArrowUpDown className="h-3 w-3" />
+                      Scheduled Date <ArrowUpDown className="h-3 w-3" />
                     </div>
                   </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Actions</TableHead>
@@ -465,7 +465,7 @@ export default function Jobs() {
                       <TableCell className="text-slate-600 dark:text-slate-300">{job.customer_name || '-'}</TableCell>
                       <TableCell><StatusBadge status={job.status} size="sm" /></TableCell>
                       <TableCell className="text-slate-500 dark:text-slate-400">
-                        {format(new Date(job.created_date), 'MMM d')}
+                        {job.scheduled_date ? format(new Date(job.scheduled_date), 'MMM d, yyyy') : '-'}
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
@@ -572,8 +572,8 @@ export default function Jobs() {
                 </SelectTrigger>
                 <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
                   <SelectItem value="Draft">Draft</SelectItem>
-                  <SelectItem value="Fulfilling">Fulfilling</SelectItem>
-                  <SelectItem value="SentOut">Sent Out</SelectItem>
+                  <SelectItem value="Ready">Ready</SelectItem>
+                  <SelectItem value="Dispatched">Dispatched</SelectItem>
                   <SelectItem value="AwaitingReturnInventory">Awaiting Return Inventory</SelectItem>
                   <SelectItem value="Completed">Completed</SelectItem>
                 </SelectContent>
