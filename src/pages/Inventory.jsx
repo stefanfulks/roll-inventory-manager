@@ -230,7 +230,7 @@ export default function Inventory() {
               <SelectItem value="Reserved">Reserved</SelectItem>
               <SelectItem value="Allocated">Allocated</SelectItem>
               <SelectItem value="Bundled">Bundled</SelectItem>
-              <SelectItem value="Shipped">Shipped</SelectItem>
+              <SelectItem value="Dispatched">Dispatched</SelectItem>
               <SelectItem value="Consumed">Consumed</SelectItem>
               <SelectItem value="Scrapped">Scrapped</SelectItem>
               <SelectItem value="ReturnedHold">Returned Hold</SelectItem>
@@ -436,7 +436,7 @@ export default function Inventory() {
                   <SelectItem value="Reserved">Reserved</SelectItem>
                   <SelectItem value="AwaitingLocation">Awaiting Location</SelectItem>
                   <SelectItem value="Consumed">Consumed</SelectItem>
-                  <SelectItem value="SentOut">Sent Out</SelectItem>
+                  <SelectItem value="Dispatched">Dispatched</SelectItem>
                   <SelectItem value="Scrapped">Scrapped</SelectItem>
                   <SelectItem value="Damaged">Damaged</SelectItem>
                 </SelectContent>

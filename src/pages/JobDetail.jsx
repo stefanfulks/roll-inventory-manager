@@ -415,7 +415,7 @@ export default function JobDetail() {
                 length_before_ft: roll.current_length_ft,
                 length_after_ft: 0,
                 performed_by: user.full_name || user.email,
-                notes: `Sent out to job ${job.job_number}`
+                notes: `Dispatched to job ${job.job_number}`
               });
             }
           }
@@ -449,7 +449,7 @@ export default function JobDetail() {
       queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
       queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
-      toast.success('Job sent out successfully');
+      toast.success('Job dispatched successfully');
     },
     onError: (error) => {
       toast.error('Failed to send out job');
