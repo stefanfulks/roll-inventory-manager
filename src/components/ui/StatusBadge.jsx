@@ -4,11 +4,12 @@ import { cn } from "@/lib/utils";
 const statusStyles = {
   // Roll statuses
   Available: "bg-emerald-100 text-emerald-700",
+  TempHold: "bg-yellow-100 text-yellow-800",
   Reserved: "bg-amber-100 text-amber-700",
   Allocated: "bg-blue-100 text-blue-700",
   Bundled: "bg-purple-100 text-purple-700",
-  Shipped: "bg-slate-100 text-slate-700",
-  Consumed: "bg-slate-200 text-slate-600",
+  Dispatched: "bg-blue-500 text-white",
+  Consumed: "bg-gray-800 text-white",
   Scrapped: "bg-red-100 text-red-700",
   ReturnedHold: "bg-orange-100 text-orange-700",
   AwaitingLocation: "bg-red-100 text-red-700",
