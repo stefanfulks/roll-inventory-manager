@@ -227,13 +227,13 @@ export default function Inventory() {
             <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="Available">Available</SelectItem>
-              <SelectItem value="Reserved">Reserved</SelectItem>
               <SelectItem value="Allocated">Allocated</SelectItem>
-              <SelectItem value="Bundled">Bundled</SelectItem>
+              <SelectItem value="Staged">Staged</SelectItem>
               <SelectItem value="Dispatched">Dispatched</SelectItem>
               <SelectItem value="Consumed">Consumed</SelectItem>
               <SelectItem value="Scrapped">Scrapped</SelectItem>
               <SelectItem value="ReturnedHold">Returned Hold</SelectItem>
+              <SelectItem value="AwaitingLocation">Awaiting Location</SelectItem>
             </SelectContent>
           </Select>
 
@@ -433,12 +433,12 @@ export default function Inventory() {
                 <SelectTrigger className="dark:bg-slate-800 dark:text-white dark:border-slate-700"><SelectValue placeholder="Select status" /></SelectTrigger>
                 <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
                   <SelectItem value="Available">Available</SelectItem>
-                  <SelectItem value="Reserved">Reserved</SelectItem>
+                  <SelectItem value="Allocated">Allocated</SelectItem>
+                  <SelectItem value="Staged">Staged</SelectItem>
                   <SelectItem value="AwaitingLocation">Awaiting Location</SelectItem>
                   <SelectItem value="Consumed">Consumed</SelectItem>
                   <SelectItem value="Dispatched">Dispatched</SelectItem>
                   <SelectItem value="Scrapped">Scrapped</SelectItem>
-                  <SelectItem value="Damaged">Damaged</SelectItem>
                 </SelectContent>
               </Select>
             </div>

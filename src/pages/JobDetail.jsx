@@ -138,7 +138,7 @@ export default function JobDetail() {
             requested_length_ft: item.current_length_ft,
             allocated_roll_ids: [item.id],
             item_type: 'roll',
-            status: 'Planned'
+            status: 'Requested'
           });
         } else if (item.type === 'inventory_item') {
           await base44.entities.Allocation.create({
@@ -149,7 +149,7 @@ export default function JobDetail() {
             item_type: 'inventory_item',
             requested_quantity: item.requested_quantity || 1,
             unit_of_measure: item.unit_of_measure,
-            status: 'Planned'
+            status: 'Requested'
           });
         }
       }
@@ -441,7 +441,7 @@ export default function JobDetail() {
         }
         
         // Update allocation status
-        await base44.entities.Allocation.update(allocation.id, { status: 'Fulfilled' });
+        await base44.entities.Allocation.update(allocation.id, { status: 'Dispatched' });
       }
     },
     onSuccess: () => {
@@ -531,7 +531,7 @@ export default function JobDetail() {
   // Calculate metrics for turf only
   const turfAllocations = allocations.filter(a => a.item_type === 'roll');
   const totalAllocatedSentOut = turfAllocations
-    .filter(a => a.status === 'Fulfilled')
+    .filter(a => a.status === 'Dispatched')
     .reduce((sum, a) => sum + (a.requested_length_ft || 0), 0);
   
   const totalReturned = returnTransactions.reduce((sum, t) => sum + (t.length_change_ft || 0), 0);
@@ -540,15 +540,15 @@ export default function JobDetail() {
 
   // Get all allocated roll IDs for returns
   const allocatedRollIds = allocations
-    .filter(a => a.item_type === 'roll' && a.status === 'Fulfilled')
+    .filter(a => a.item_type === 'roll' && a.status === 'Dispatched')
     .flatMap(a => a.allocated_roll_ids || []);
   
   // Filter rolls to include those allocated to this job (regardless of status)
   const availableRollsForReturn = allRolls.filter(r => allocatedRollIds.includes(r.id));
 
-  // Check if there are any reserved allocations
-  const hasReservedAllocations = allocations.some(a => a.status === 'Reserved');
-  const reservedAllocations = allocations.filter(a => a.status === 'Reserved');
+  // Check if there are any allocations still in Requested state
+  const hasRequestedAllocations = allocations.some(a => a.status === 'Requested');
+  const requestedAllocations = allocations.filter(a => a.status === 'Requested');
 
   return (
     <div className="space-y-6">
@@ -573,9 +573,8 @@ export default function JobDetail() {
           {job.status === 'Draft' && allocations.length > 0 && (
             <Button 
               onClick={() => markJobReadyMutation.mutate()}
-              disabled={hasReservedAllocations || markJobReadyMutation.isPending}
+              disabled={markJobReadyMutation.isPending}
               className="bg-emerald-600 hover:bg-emerald-700"
-              title={hasReservedAllocations ? 'Cannot mark as ready while reserved items exist' : ''}
             >
               Mark as Ready
             </Button>
@@ -723,69 +722,7 @@ export default function JobDetail() {
         </Card>
       </div>
 
-      {/* Reserved Items Section */}
-      {reservedAllocations.length > 0 && (
-        <Card className="rounded-2xl border-amber-200 bg-amber-50 shadow-sm overflow-hidden dark:bg-amber-900/20 dark:border-amber-700/50">
-          <CardHeader>
-            <CardTitle className="text-lg text-amber-800 dark:text-amber-400 flex items-center gap-2">
-              <Package className="h-5 w-5" />
-              Reserved Items (Must be cleared before marking as Ready)
-            </CardTitle>
-          </CardHeader>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-amber-100 dark:bg-amber-900/30">
-                  <TableHead className="dark:text-amber-300">Type</TableHead>
-                  <TableHead className="dark:text-amber-300">Item</TableHead>
-                  <TableHead className="dark:text-amber-300">Details</TableHead>
-                  <TableHead className="dark:text-amber-300">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {reservedAllocations.map((allocation) => (
-                  <TableRow key={allocation.id} className="dark:hover:bg-amber-900/20">
-                    <TableCell>
-                      <StatusBadge 
-                        status={allocation.item_type === 'roll' ? 'Roll' : 'Item'} 
-                        size="sm" 
-                      />
-                    </TableCell>
-                    <TableCell className="font-medium dark:text-white">{allocation.product_name}</TableCell>
-                    <TableCell className="text-slate-600 dark:text-slate-300">
-                      {allocation.item_type === 'roll' ? (
-                        `${allocation.width_ft}ft × ${allocation.requested_length_ft}ft`
-                      ) : (
-                        `${allocation.requested_quantity || 1} ${allocation.unit_of_measure || 'unit'}`
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button 
-                          size="sm"
-                          variant="outline"
-                          onClick={() => updateAllocationStatusMutation.mutate({ allocationId: allocation.id, status: 'Planned' })}
-                          disabled={updateAllocationStatusMutation.isPending}
-                        >
-                          Release
-                        </Button>
-                        <Button 
-                          size="sm"
-                          onClick={() => updateAllocationStatusMutation.mutate({ allocationId: allocation.id, status: 'Fulfilled' })}
-                          disabled={updateAllocationStatusMutation.isPending}
-                          className="bg-emerald-600 hover:bg-emerald-700"
-                        >
-                          Allocate
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </Card>
-      )}
+
 
       {/* Outside Materials */}
       {outsideMaterials.length > 0 && (
@@ -1133,9 +1070,10 @@ export default function JobDetail() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Planned">Planned</SelectItem>
-                          <SelectItem value="Reserved">Reserved</SelectItem>
-                          <SelectItem value="Fulfilled">Fulfilled</SelectItem>
+                          <SelectItem value="Requested">Requested</SelectItem>
+                          <SelectItem value="Allocated">Allocated</SelectItem>
+                          <SelectItem value="Staged">Staged</SelectItem>
+                          <SelectItem value="Dispatched">Dispatched</SelectItem>
                           <SelectItem value="Cancelled">Cancelled</SelectItem>
                         </SelectContent>
                       </Select>
@@ -1171,12 +1109,12 @@ export default function JobDetail() {
             </p>
             
             <div className="border rounded-lg max-h-96 overflow-y-auto">
-              {allocations.filter(a => a.status === 'Fulfilled').length === 0 ? (
+              {allocations.filter(a => a.status === 'Dispatched').length === 0 ? (
                 <div className="p-8 text-center text-slate-500">
                   No items were sent out for this job
                 </div>
               ) : (
-                allocations.filter(a => a.status === 'Fulfilled').map(allocation => {
+                allocations.filter(a => a.status === 'Dispatched').map(allocation => {
                   if (allocation.item_type === 'inventory_item') {
                     const item = inventoryItems.find(i => i.id === allocation.item_id);
                     if (!item) return null;
