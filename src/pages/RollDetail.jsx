@@ -41,9 +41,10 @@ export default function RollDetail() {
   const queryClient = useQueryClient();
   const params = new URLSearchParams(window.location.search);
   const rollId = params.get('id');
-  const [showStageDialog, setShowStageDialog] = useState(false);
+  const [showPlanDialog, setShowPlanDialog] = useState(false);
   const [showAllocateDialog, setShowAllocateDialog] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState('');
+  const [actionType, setActionType] = useState(''); // 'plan' or 'allocate'
 
   const { data: roll, isLoading } = useQuery({
     queryKey: ['roll', rollId],
@@ -77,6 +78,50 @@ export default function RollDetail() {
       const allJobs = await base44.entities.Job.list();
       return allJobs.filter(j => j.status !== 'Archived');
     },
+  });
+
+  const planForJobMutation = useMutation({
+    mutationFn: async (jobId) => {
+      const user = await base44.auth.me();
+      const job = jobs.find(j => j.id === jobId);
+
+      await base44.entities.Allocation.create({
+        job_id: jobId,
+        job_name: job.job_name || job.job_number,
+        product_id: roll.product_id,
+        product_name: roll.product_name,
+        width_ft: roll.width_ft,
+        dye_lot_preference: roll.dye_lot,
+        requested_length_ft: roll.current_length_ft,
+        allocated_roll_ids: [roll.id],
+        item_type: 'roll',
+        status: 'Requested'
+      });
+
+      await base44.entities.Roll.update(roll.id, { status: 'Planned', allocated_job_id: jobId });
+
+      await base44.entities.Transaction.create({
+        transaction_type: 'PlanForJob',
+        fulfillment_for: job.fulfillment_for,
+        roll_id: roll.id,
+        tt_sku_tag_number: roll.tt_sku_tag_number || roll.roll_tag,
+        job_id: jobId,
+        job_number: job.job_number,
+        product_name: roll.product_name,
+        dye_lot: roll.dye_lot,
+        width_ft: roll.width_ft,
+        performed_by: user.full_name || user.email,
+        notes: `Planned for job ${job.job_number}`
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roll', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      queryClient.invalidateQueries({ queryKey: ['allocations'] });
+      setShowPlanDialog(false);
+      setSelectedJobId('');
+      toast.success('Roll planned for job');
+    }
   });
 
   const allocateForJobMutation = useMutation({
@@ -123,52 +168,7 @@ export default function RollDetail() {
     }
   });
 
-  const stageForJobMutation = useMutation({
-    mutationFn: async (jobId) => {
-      const user = await base44.auth.me();
-      const job = jobs.find(j => j.id === jobId);
-      
-      // Create allocation
-      await base44.entities.Allocation.create({
-        job_id: jobId,
-        job_name: job.job_name || job.job_number,
-        product_id: roll.product_id,
-        product_name: roll.product_name,
-        width_ft: roll.width_ft,
-        dye_lot_preference: roll.dye_lot,
-        requested_length_ft: roll.current_length_ft,
-        allocated_roll_ids: [roll.id],
-        item_type: 'roll',
-        status: 'Staged'
-      });
 
-      // Update roll status
-      const updatedRollData = { status: 'Staged', allocated_job_id: jobId };
-      await base44.entities.Roll.update(roll.id, updatedRollData);
-
-      // Create transaction
-      await base44.entities.Transaction.create({
-        transaction_type: 'StageForJob',
-        fulfillment_for: job.fulfillment_for,
-        roll_id: roll.id,
-        tt_sku_tag_number: roll.tt_sku_tag_number || roll.roll_tag,
-        job_id: jobId,
-        job_number: job.job_number,
-        product_name: roll.product_name,
-        dye_lot: roll.dye_lot,
-        width_ft: roll.width_ft,
-        performed_by: user.full_name || user.email,
-        notes: `Staged for job ${job.job_number}`
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['roll', rollId] });
-      queryClient.invalidateQueries({ queryKey: ['rolls'] });
-      setShowStageDialog(false);
-      setSelectedJobId('');
-      toast.success('Roll staged for job');
-    }
-  });
 
   if (isLoading) {
     return (
@@ -217,20 +217,26 @@ export default function RollDetail() {
           {roll.status === 'Available' && roll.current_length_ft > 0 && (
             <>
               <Button 
-                onClick={() => setShowAllocateDialog(true)}
+                onClick={() => {
+                  setActionType('plan');
+                  setShowPlanDialog(true);
+                }}
+                variant="outline"
+                className="border-purple-600 text-purple-600 hover:bg-purple-50"
+              >
+                <Briefcase className="h-4 w-4 mr-2" />
+                Plan for Job
+              </Button>
+              <Button 
+                onClick={() => {
+                  setActionType('allocate');
+                  setShowAllocateDialog(true);
+                }}
                 variant="outline"
                 className="border-yellow-600 text-yellow-600 hover:bg-yellow-50"
               >
                 <Briefcase className="h-4 w-4 mr-2" />
                 Allocate for Job
-              </Button>
-              <Button 
-                onClick={() => setShowStageDialog(true)}
-                variant="outline"
-                className="border-blue-600 text-blue-600 hover:bg-blue-50"
-              >
-                <Briefcase className="h-4 w-4 mr-2" />
-                Stage for Job
               </Button>
               <Link to={createPageUrl(`CutRoll?roll_id=${roll.id}`)}>
                 <Button className="bg-emerald-600 hover:bg-emerald-700">
@@ -240,7 +246,7 @@ export default function RollDetail() {
               </Link>
             </>
           )}
-          {(roll.status === 'Allocated' || roll.status === 'Staged') && roll.allocated_job_id && (
+          {(roll.status === 'Allocated' || roll.status === 'Staged' || roll.status === 'Planned') && roll.allocated_job_id && (
             <Link to={createPageUrl(`JobDetail?id=${roll.allocated_job_id}`)}>
               <Button
                 variant="outline"
@@ -464,20 +470,20 @@ export default function RollDetail() {
         </div>
       </div>
 
-      {/* Stage for Job Dialog */}
-      <Dialog open={showStageDialog} onOpenChange={setShowStageDialog}>
+      {/* Plan for Job Dialog */}
+      <Dialog open={showPlanDialog} onOpenChange={setShowPlanDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Stage Roll for Job</DialogTitle>
+            <DialogTitle>Plan Roll for Job</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label htmlFor="job-select-stage">Select Job</Label>
+              <Label htmlFor="job-select-plan">Select Job</Label>
               <Select
                 value={selectedJobId}
                 onValueChange={setSelectedJobId}
               >
-                <SelectTrigger id="job-select-stage" className="w-full">
+                <SelectTrigger id="job-select-plan" className="w-full">
                   <SelectValue placeholder="Select a job" />
                 </SelectTrigger>
                 <SelectContent>
@@ -490,14 +496,14 @@ export default function RollDetail() {
               </Select>
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowStageDialog(false)}>
+              <Button variant="outline" onClick={() => setShowPlanDialog(false)}>
                 Cancel
               </Button>
               <Button 
-                onClick={() => stageForJobMutation.mutate(selectedJobId)}
-                disabled={!selectedJobId || stageForJobMutation.isPending}
+                onClick={() => planForJobMutation.mutate(selectedJobId)}
+                disabled={!selectedJobId || planForJobMutation.isPending}
               >
-                Confirm Staging
+                Confirm Planning
               </Button>
             </div>
           </div>
