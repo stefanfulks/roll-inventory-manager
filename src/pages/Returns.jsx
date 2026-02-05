@@ -55,7 +55,7 @@ export default function Returns() {
   const { data: jobs = [] } = useQuery({
     queryKey: ['jobs-for-returns'],
     queryFn: () => base44.entities.Job.filter({ 
-      status: { $in: ['SentOut', 'AwaitingReturnInventory', 'Completed'] }
+      status: { $in: ['Dispatched', 'AwaitingReturnInventory', 'Completed'] }
     }, '-created_date', 100),
   });
 
@@ -69,15 +69,15 @@ export default function Returns() {
     },
   });
 
-  const { data: shippedRolls = [] } = useQuery({
-    queryKey: ['shipped-rolls'],
-    queryFn: () => base44.entities.Roll.filter({ status: 'Shipped' }, '-created_date', 500),
+  const { data: dispatchedRolls = [] } = useQuery({
+    queryKey: ['dispatched-rolls'],
+    queryFn: () => base44.entities.Roll.filter({ status: 'Dispatched' }, '-created_date', 500),
   });
 
   const handleSearchRoll = async (searchTerm) => {
     const search = searchTerm.toLowerCase();
     const results = await base44.entities.Roll.filter({
-      status: 'SentOut'
+      status: 'Dispatched'
     });
     
     const found = results.find(r => 
@@ -89,7 +89,7 @@ export default function Returns() {
     if (found) {
       setSelectedRoll(found);
     } else {
-      toast.error('Roll not found or not sent out');
+      toast.error('Roll not found or not dispatched');
     }
   };
 
@@ -127,7 +127,7 @@ export default function Returns() {
     });
 
     queryClient.invalidateQueries({ queryKey: ['rolls'] });
-    queryClient.invalidateQueries({ queryKey: ['shipped-rolls'] });
+    queryClient.invalidateQueries({ queryKey: ['dispatched-rolls'] });
     queryClient.invalidateQueries({ queryKey: ['transactions'] });
 
     setIsProcessing(false);
@@ -254,8 +254,8 @@ export default function Returns() {
             {/* Search Roll */}
             <Card className="rounded-2xl border-slate-100 shadow-sm">
               <CardHeader>
-                <CardTitle>1. Find Shipped Roll</CardTitle>
-                <CardDescription>Scan the roll tag to return</CardDescription>
+                <CardTitle>1. Find Dispatched Roll</CardTitle>
+                <parameter name="CardDescription">Scan the roll tag to return</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <RollSearch 

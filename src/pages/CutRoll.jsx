@@ -144,7 +144,7 @@ export default function CutRoll() {
       condition: selectedRoll.condition,
       location_id: selectedRoll.location_id,
       location_name: selectedRoll.location_name,
-      status: destination === 'job' && selectedJobId ? 'Allocated' : 'Available',
+      status: destination === 'job' && selectedJobId ? 'Staged' : 'Available',
       date_received: new Date().toISOString().split('T')[0],
     };
 
@@ -186,7 +186,7 @@ export default function CutRoll() {
         dye_lot_preference: childRoll.dye_lot,
         requested_length_ft: cutLengthNum,
         allocated_length_ft: cutLengthNum,
-        status: 'Reserved',
+        status: 'Staged',
         allocated_roll_ids: [childRoll.id]
       });
 
@@ -201,7 +201,7 @@ export default function CutRoll() {
         dye_lot: childRoll.dye_lot,
         width_ft: childRoll.width_ft,
         length_change_ft: 0,
-        notes: `Allocated to job ${selectedJob?.job_number} after cut`
+        notes: `Staged for job ${selectedJob?.job_number} after cut`
       });
     }
 

@@ -12,7 +12,8 @@ import {
   Search,
   Package,
   Send,
-  MessageSquare
+  MessageSquare,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,6 +46,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import StatusBadge from '@/components/ui/StatusBadge';
 import OwnerBadge from '@/components/ui/OwnerBadge';
+import SwapRollDialog from '@/components/job/SwapRollDialog';
 import { format } from 'date-fns';
 
 export default function JobDetail() {
@@ -68,6 +70,9 @@ export default function JobDetail() {
     quantity_definition: '',
     notes: ''
   });
+  const [showSwapDialog, setShowSwapDialog] = useState(false);
+  const [swapAllocation, setSwapAllocation] = useState(null);
+  const [swapCurrentRoll, setSwapCurrentRoll] = useState(null);
 
   const { data: job, isLoading } = useQuery({
     queryKey: ['job', jobId],
@@ -1079,15 +1084,32 @@ export default function JobDetail() {
                       </Select>
                     </TableCell>
                     <TableCell>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => deleteAllocationMutation.mutate(allocation.id)}
-                        disabled={deleteAllocationMutation.isPending || job.status !== 'Draft'}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex gap-2">
+                        {allocation.item_type === 'roll' && allocation.status === 'Allocated' && allocation.allocated_roll_ids?.[0] && (
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => {
+                              const roll = allRolls.find(r => r.id === allocation.allocated_roll_ids[0]);
+                              setSwapAllocation(allocation);
+                              setSwapCurrentRoll(roll);
+                              setShowSwapDialog(true);
+                            }}
+                            className="text-blue-600 hover:text-blue-700"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => deleteAllocationMutation.mutate(allocation.id)}
+                          disabled={deleteAllocationMutation.isPending || job.status !== 'Draft'}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -1495,6 +1517,15 @@ export default function JobDetail() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Swap Roll Dialog */}
+      <SwapRollDialog
+        open={showSwapDialog}
+        onOpenChange={setShowSwapDialog}
+        allocation={swapAllocation}
+        job={job}
+        currentRoll={swapCurrentRoll}
+      />
     </div>
   );
 }
