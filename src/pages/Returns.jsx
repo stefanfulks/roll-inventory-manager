@@ -255,7 +255,7 @@ export default function Returns() {
             <Card className="rounded-2xl border-slate-100 shadow-sm">
               <CardHeader>
                 <CardTitle>1. Find Dispatched Roll</CardTitle>
-                <parameter name="CardDescription">Scan the roll tag to return</CardDescription>
+                <CardDescription>Scan the roll tag to return</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <RollSearch 
