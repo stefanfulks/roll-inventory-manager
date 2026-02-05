@@ -6,6 +6,7 @@ import StatCard from '@/components/ui/StatCard';
 import { Package, Ruler, AlertTriangle, Clock } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { format } from 'date-fns';
+import ForecastChart from '@/components/dashboard/ForecastChart';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
@@ -14,6 +15,7 @@ export default function TurfDashboard({
   transactions, 
   products, 
   allocations, 
+  jobs,
   settings, 
   visibleCharts 
 }) {
@@ -170,6 +172,9 @@ export default function TurfDashboard({
           />
         </div>
       </div>
+
+      {/* Forecast Chart */}
+      <ForecastChart rolls={rolls} jobs={jobs} />
 
       {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

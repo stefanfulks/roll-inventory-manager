@@ -54,6 +54,13 @@ export default function Dashboard() {
     refetchOnWindowFocus: false
   });
 
+  const { data: jobs = [] } = useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => base44.entities.Job.list(),
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false
+  });
+
   const { data: settings = [] } = useQuery({
     queryKey: ['settings'],
     queryFn: () => base44.entities.Settings.list(),
@@ -146,6 +153,7 @@ export default function Dashboard() {
             transactions={transactions}
             products={products}
             allocations={allocations}
+            jobs={jobs}
             settings={settings}
             visibleCharts={visibleCharts}
           />
