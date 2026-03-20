@@ -20,6 +20,7 @@ const statusStyles = {
   Archived: "bg-slate-200 text-slate-600",
   
   // Allocation statuses
+  Planned: "bg-purple-100 text-purple-700",
   Requested: "bg-slate-100 text-slate-600",
   Cancelled: "bg-red-100 text-red-600",
   

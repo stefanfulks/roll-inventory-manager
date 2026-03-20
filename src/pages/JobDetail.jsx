@@ -143,7 +143,7 @@ export default function JobDetail() {
             requested_length_ft: item.current_length_ft,
             allocated_roll_ids: [item.id],
             item_type: 'roll',
-            status: 'Requested'
+            status: 'Planned'
           });
         } else if (item.type === 'inventory_item') {
           await base44.entities.Allocation.create({
@@ -154,7 +154,7 @@ export default function JobDetail() {
             item_type: 'inventory_item',
             requested_quantity: item.requested_quantity || 1,
             unit_of_measure: item.unit_of_measure,
-            status: 'Requested'
+            status: 'Planned'
           });
         }
       }
