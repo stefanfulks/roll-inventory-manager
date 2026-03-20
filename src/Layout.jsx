@@ -21,13 +21,10 @@ import {
   FileSpreadsheet,
   FileBarChart,
   HelpCircle,
-  Moon,
-  Sun,
   Search,
   Archive
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,7 +59,6 @@ const adminItems = [
 export default function Layout({ children, currentPageName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [user, setUser] = useState(null);
-  const [theme, setTheme] = useState('dark');
   const location = useLocation();
 
   useEffect(() => {
@@ -75,18 +71,9 @@ export default function Layout({ children, currentPageName }) {
       }
     };
     loadUser();
-
-    const savedTheme = localStorage.getItem('theme') || 'dark';
-    setTheme(savedTheme);
-    document.documentElement.classList.toggle('dark', savedTheme === 'dark');
+    // Ensure dark class is never applied
+    document.documentElement.classList.remove('dark');
   }, []);
-
-  const toggleTheme = () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-    document.documentElement.classList.toggle('dark', newTheme === 'dark');
-  };
 
   const handleLogout = () => {
     base44.auth.logout();
@@ -225,14 +212,7 @@ export default function Layout({ children, currentPageName }) {
           {/* User Menu */}
           {user && (
             <div className="p-4 border-t border-slate-100 dark:border-slate-700/50 space-y-3">
-              <div className="flex items-center justify-between px-3">
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Theme</span>
-                <div className="flex items-center gap-2">
-                  <Sun className="h-4 w-4 text-slate-400" />
-                  <Switch checked={theme === 'dark'} onCheckedChange={toggleTheme} />
-                  <Moon className="h-4 w-4 text-slate-400" />
-                </div>
-              </div>
+
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="w-full justify-start gap-3 h-auto py-2 dark:hover:bg-slate-700/50">
