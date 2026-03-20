@@ -269,8 +269,8 @@ export default function RollDetail() {
             </CardHeader>
             <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-6">
               <div>
-                <p className="text-sm text-slate-500 mb-1">Owner</p>
-                <OwnerBadge owner={roll.inventory_owner} />
+                <p className="text-sm text-slate-500 mb-1">Vendor</p>
+                <p className="font-medium text-slate-800">{roll.vendor_name || '-'}</p>
               </div>
               <div>
                 <p className="text-sm text-slate-500 mb-1">Product</p>

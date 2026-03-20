@@ -97,12 +97,7 @@ export default function Layout({ children, currentPageName }) {
           --text: 222 47% 11%;
         }
 
-        .dark {
-          --background: 222 47% 8%;
-          --panel: 222 47% 14%;
-          --accent: 76 73% 45%;
-          --text: 0 0% 98%;
-        }
+
       `}</style>
       
       {/* Mobile Header */}

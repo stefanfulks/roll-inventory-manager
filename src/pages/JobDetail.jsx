@@ -407,7 +407,7 @@ export default function JobDetail() {
             const roll = allRolls.find(r => r.id === rollId);
             if (roll) {
               await base44.entities.Transaction.create({
-                transaction_type: 'DispatchToJob',
+                transaction_type: 'SendOutToJob',
                 fulfillment_for: job.fulfillment_for,
                 roll_id: rollId,
                 tt_sku_tag_number: roll.tt_sku_tag_number || roll.roll_tag,
@@ -434,7 +434,7 @@ export default function JobDetail() {
             
             // Create transaction
             await base44.entities.Transaction.create({
-              transaction_type: 'DispatchToJob',
+              transaction_type: 'SendOutToJob',
               fulfillment_for: job.fulfillment_for,
               job_id: jobId,
               job_number: job.job_number,
