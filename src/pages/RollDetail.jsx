@@ -94,7 +94,7 @@ export default function RollDetail() {
         requested_length_ft: roll.current_length_ft,
         allocated_roll_ids: [roll.id],
         item_type: 'roll',
-        status: 'Requested'
+        status: 'Planned'
       });
 
       await base44.entities.Roll.update(roll.id, { status: 'Planned', allocated_job_id: jobId });

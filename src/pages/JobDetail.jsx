@@ -552,8 +552,8 @@ export default function JobDetail() {
   const availableRollsForReturn = allRolls.filter(r => allocatedRollIds.includes(r.id));
 
   // Check if there are any allocations still in Requested state
-  const hasRequestedAllocations = allocations.some(a => a.status === 'Requested');
-  const requestedAllocations = allocations.filter(a => a.status === 'Requested');
+  const hasRequestedAllocations = allocations.some(a => a.status === 'Planned');
+  const requestedAllocations = allocations.filter(a => a.status === 'Planned');
 
   return (
     <div className="space-y-6">
@@ -1075,7 +1075,7 @@ export default function JobDetail() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Requested">Requested</SelectItem>
+                          <SelectItem value="Planned">Planned</SelectItem>
                           <SelectItem value="Allocated">Allocated</SelectItem>
                           <SelectItem value="Staged">Staged</SelectItem>
                           <SelectItem value="Dispatched">Dispatched</SelectItem>
