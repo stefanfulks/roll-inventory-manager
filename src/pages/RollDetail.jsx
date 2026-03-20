@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/select";
 import { Label } from '@/components/ui/label';
 import StatusBadge from '@/components/ui/StatusBadge';
-import OwnerBadge from '@/components/ui/OwnerBadge';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
