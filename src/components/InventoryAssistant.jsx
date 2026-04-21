@@ -51,7 +51,9 @@ export default function InventoryAssistant() {
           content: typeof m.content === 'string' ? m.content : String(m.content),
         })),
       };
-      const result = await base44.functions.invoke('askAI', payload);
+      const raw = await base44.functions.invoke('askAI', payload);
+      // Base44 SDK may return the body directly, or wrapped in { data, status }.
+      const result = raw?.data ?? raw;
 
       if (result?.error) {
         throw new Error(result.error);
@@ -59,7 +61,7 @@ export default function InventoryAssistant() {
 
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: result.reply || '(no reply)', actions: result.actionsTaken },
+        { role: 'assistant', content: result?.reply || '(no reply)', actions: result?.actionsTaken },
       ]);
 
       // If the AI performed any writes, invalidate the main caches so the

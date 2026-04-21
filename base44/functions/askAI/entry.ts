@@ -1,4 +1,3 @@
-// force redeploy
 // deno-lint-ignore-file no-explicit-any
 // askAI — Base44 backend function (Deno runtime).
 //
@@ -502,15 +501,29 @@ Deno.serve(async (req: Request) => {
       }
 
       const response = await anthropicResp.json();
-      const textBlocks = (response.content || [])
+      const contentBlocks = response.content || [];
+      const textBlocks = contentBlocks
         .filter((b: any) => b.type === 'text')
         .map((b: any) => b.text);
-      const toolUses = (response.content || []).filter((b: any) => b.type === 'tool_use');
+      const toolUses = contentBlocks.filter((b: any) => b.type === 'tool_use');
 
-      if (response.stop_reason === 'end_turn' || toolUses.length === 0) {
+      // Loop only when the model actually requested tools.
+      if (toolUses.length === 0) {
+        const reply = textBlocks.join('\n\n').trim();
+        if (reply) {
+          return Response.json({ reply, actionsTaken });
+        }
+        // Empty reply — return the full upstream response so we can see why.
+        console.error('askAI: empty reply', JSON.stringify(response));
         return Response.json({
-          reply: textBlocks.join('\n\n').trim() || '(no reply)',
+          reply:
+            '(model returned no text)\n' +
+            `stop_reason=${response.stop_reason ?? 'unknown'} ` +
+            `stop_sequence=${response.stop_sequence ?? 'none'} ` +
+            `content_blocks=${contentBlocks.length} ` +
+            `iter=${i + 1}`,
           actionsTaken,
+          debug: { raw: response },
         });
       }
 
