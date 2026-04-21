@@ -52,16 +52,23 @@ export default function InventoryAssistant() {
         })),
       };
       const raw = await base44.functions.invoke('askAI', payload);
+      console.log('[InventoryAssistant] raw response from askAI:', raw);
       // Base44 SDK may return the body directly, or wrapped in { data, status }.
       const result = raw?.data ?? raw;
+      console.log('[InventoryAssistant] unwrapped result:', result);
 
       if (result?.error) {
         throw new Error(result.error);
       }
 
+      const replyText =
+        typeof result?.reply === 'string' && result.reply.length > 0
+          ? result.reply
+          : `(no reply — raw response: ${JSON.stringify(raw).slice(0, 300)})`;
+
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: result?.reply || '(no reply)', actions: result?.actionsTaken },
+        { role: 'assistant', content: replyText, actions: result?.actionsTaken },
       ]);
 
       // If the AI performed any writes, invalidate the main caches so the
