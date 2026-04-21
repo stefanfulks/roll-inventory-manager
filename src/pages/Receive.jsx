@@ -378,6 +378,22 @@ export default function Receive() {
     }
   };
 
+  // Filter products for a given manufacturer. Matches by ID when possible, falls
+  // back to case-insensitive name match. Ignores all whitespace so "MightyGrass"
+  // matches "Mighty Grass". Does NOT filter by width.
+  const productsForManufacturer = (manufacturerId, manufacturerName) => {
+    if (!manufacturerId && !manufacturerName) return [];
+    const normalize = (s) => (s || '').replace(/\s+/g, '').toLowerCase();
+    const wantedName = normalize(manufacturerName);
+    return products.filter(p => {
+      if (p.manufacturer_id && manufacturerId && p.manufacturer_id === manufacturerId) return true;
+      if (wantedName && normalize(p.manufacturer_name) === wantedName) return true;
+      // Some legacy products may use vendor_name instead.
+      if (wantedName && normalize(p.vendor_name) === wantedName) return true;
+      return false;
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -450,13 +466,22 @@ export default function Receive() {
                         <SelectValue placeholder={singleForm.manufacturer_id ? "Select product" : "Select manufacturer first"} />
                       </SelectTrigger>
                       <SelectContent>
-                        {products.filter(p => {
-                          const widthMatch = !singleForm.width_ft || p.width_options?.includes(parseFloat(singleForm.width_ft));
-                          const manufacturerMatch = !singleForm.manufacturer_name || p.manufacturer_name === singleForm.manufacturer_name;
-                          return widthMatch && manufacturerMatch;
-                        }).map(p => (
-                          <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
-                        ))}
+                        {(() => {
+                          const filtered = productsForManufacturer(singleForm.manufacturer_id, singleForm.manufacturer_name);
+                          if (filtered.length === 0) {
+                            return (
+                              <div className="px-3 py-6 text-sm text-slate-500 text-center">
+                                No products linked to this manufacturer.
+                                <br />
+                                Add products in the Turf admin page and set their manufacturer to{' '}
+                                <span className="font-medium">{singleForm.manufacturer_name || '—'}</span>.
+                              </div>
+                            );
+                          }
+                          return filtered.map(p => (
+                            <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
+                          ));
+                        })()}
                       </SelectContent>
                     </Select>
                   </div>
@@ -580,13 +605,22 @@ export default function Receive() {
                         <SelectValue placeholder={rapidForm.manufacturer_id ? "Select product" : "Select manufacturer first"} />
                       </SelectTrigger>
                       <SelectContent>
-                        {products.filter(p => {
-                          const widthMatch = !rapidForm.width_ft || p.width_options?.includes(parseFloat(rapidForm.width_ft));
-                          const manufacturerMatch = !rapidForm.manufacturer_name || p.manufacturer_name === rapidForm.manufacturer_name;
-                          return widthMatch && manufacturerMatch;
-                        }).map(p => (
-                          <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
-                        ))}
+                        {(() => {
+                          const filtered = productsForManufacturer(rapidForm.manufacturer_id, rapidForm.manufacturer_name);
+                          if (filtered.length === 0) {
+                            return (
+                              <div className="px-3 py-6 text-sm text-slate-500 text-center">
+                                No products linked to this manufacturer.
+                                <br />
+                                Add products in the Turf admin page and set their manufacturer to{' '}
+                                <span className="font-medium">{rapidForm.manufacturer_name || '—'}</span>.
+                              </div>
+                            );
+                          }
+                          return filtered.map(p => (
+                            <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
+                          ));
+                        })()}
                       </SelectContent>
                     </Select>
                   </div>
