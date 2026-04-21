@@ -32,9 +32,19 @@ export default function TurfDashboard({
   const terminalStatuses = [ROLL_STATUS.CONSUMED, ROLL_STATUS.SCRAPPED];
   const activeRolls = allRolls.filter(r => !terminalStatuses.includes(r.status));
   const totalRolls = activeRolls.length;
-  const parentRolls = activeRolls.filter(r => r.roll_type === 'Parent');
+  // Legacy rolls may not have roll_type set — treat them as Parent by default
+  // (overwhelmingly the common case since children are created via CutRoll).
   const childRolls = activeRolls.filter(r => r.roll_type === 'Child');
+  const parentRolls = activeRolls.filter(r => r.roll_type !== 'Child');
   const totalSqft = availableRolls.reduce((sum, r) => sum + r.current_length_ft * r.width_ft, 0);
+
+  // Roll → product matcher with legacy-data fallback.
+  // Match by product_id when both sides have it; fall back to product_name.
+  const rollMatchesProduct = (roll, product) => {
+    if (roll.product_id && product.id && roll.product_id === product.id) return true;
+    if (roll.product_name && product.product_name && roll.product_name === product.product_name) return true;
+    return false;
+  };
 
   const getSetting = (key, defaultValue) => {
     const setting = settings.find(s => s.setting_key === key);
@@ -46,7 +56,7 @@ export default function TurfDashboard({
   // Low inventory - products below minimum
   const lowInventoryProducts = products.filter(product => {
     if (!product.min_stock_level_ft) return false;
-    const productRolls = availableRolls.filter(r => r.product_id === product.id);
+    const productRolls = availableRolls.filter(r => rollMatchesProduct(r, product));
     const totalFt = productRolls.reduce((sum, r) => sum + r.current_length_ft, 0);
     return totalFt < product.min_stock_level_ft;
   });
@@ -101,10 +111,10 @@ export default function TurfDashboard({
     .sort((a, b) => b.value - a.value)
     .slice(0, 8);
 
-  // Turf type distribution with actual data
+  // Turf type distribution with actual data.
   const turfTypeChartData = products
     .map(product => {
-      const rollCount = availableRolls.filter(r => r.product_id === product.id).length;
+      const rollCount = availableRolls.filter(r => rollMatchesProduct(r, product)).length;
       return {
         name: product.product_name,
         value: rollCount
@@ -466,7 +476,7 @@ export default function TurfDashboard({
           </DialogHeader>
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {lowInventoryProducts.map(product => {
-              const productRolls = availableRolls.filter(r => r.product_id === product.id);
+              const productRolls = availableRolls.filter(r => rollMatchesProduct(r, product));
               const totalFt = productRolls.reduce((sum, r) => sum + r.current_length_ft, 0);
               return (
                 <div key={product.id} className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">

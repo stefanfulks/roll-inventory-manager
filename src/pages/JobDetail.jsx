@@ -555,8 +555,11 @@ export default function JobDetail() {
 
   // Calculate metrics for turf only
   const turfAllocations = allocations.filter(a => a.item_type === 'roll');
+  // "Allocated (Sent Out)" = anything the warehouse has committed or further along.
+  // Includes Allocated, Staged, and Dispatched. Planned is forecast-only and excluded.
+  const COMMITTED_STATUSES = ['Allocated', 'Staged', 'Dispatched'];
   const totalAllocatedSentOut = turfAllocations
-    .filter(a => a.status === 'Dispatched')
+    .filter(a => COMMITTED_STATUSES.includes(a.status))
     .reduce((sum, a) => sum + (a.requested_length_ft || 0), 0);
   
   const totalReturned = returnTransactions.reduce((sum, t) => sum + (t.length_change_ft || 0), 0);
@@ -571,7 +574,7 @@ export default function JobDetail() {
   // Filter rolls to include those allocated to this job (regardless of status)
   const availableRollsForReturn = allRolls.filter(r => allocatedRollIds.includes(r.id));
 
-  // Check if there are any allocations still in Requested state
+  // Check if there are any allocations still in Planned state (Office forecasts, not yet warehouse-committed)
   const hasRequestedAllocations = allocations.some(a => a.status === 'Planned');
   const requestedAllocations = allocations.filter(a => a.status === 'Planned');
 

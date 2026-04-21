@@ -127,7 +127,7 @@ export default function RollDetail() {
         dye_lot: roll.dye_lot,
         width_ft: roll.width_ft,
         performed_by: user.full_name || user.email,
-        notes: `Temp hold for job ${job.job_number}`,
+        notes: `Planned for job ${job.job_number}`,
       });
     },
     onSuccess: () => {
@@ -136,7 +136,7 @@ export default function RollDetail() {
       queryClient.invalidateQueries({ queryKey: ['allocations'] });
       setShowPlanDialog(false);
       setSelectedJobId('');
-      toast.success('Roll placed on temp hold for job');
+      toast.success('Roll planned for job');
     },
   });
 
