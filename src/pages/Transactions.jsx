@@ -157,19 +157,19 @@ export default function Transactions() {
         <div className="bg-white rounded-xl p-4 border border-slate-100">
           <p className="text-sm text-slate-500 mb-1">Receives</p>
           <p className="text-2xl font-bold text-emerald-600">
-            {filteredTransactions.filter(t => t.transaction_type === 'Receive').length}
+            {filteredTransactions.filter(t => t.transaction_type === 'ReceiveRoll').length}
           </p>
         </div>
         <div className="bg-white rounded-xl p-4 border border-slate-100">
           <p className="text-sm text-slate-500 mb-1">Ships</p>
           <p className="text-2xl font-bold text-blue-600">
-            {filteredTransactions.filter(t => t.transaction_type === 'Ship').length}
+            {filteredTransactions.filter(t => t.transaction_type === 'SendOutToJob').length}
           </p>
         </div>
         <div className="bg-white rounded-xl p-4 border border-slate-100">
           <p className="text-sm text-slate-500 mb-1">Returns</p>
           <p className="text-2xl font-bold text-orange-600">
-            {filteredTransactions.filter(t => t.transaction_type === 'Return').length}
+            {filteredTransactions.filter(t => t.transaction_type === 'ReturnFromJob').length}
           </p>
         </div>
       </div>

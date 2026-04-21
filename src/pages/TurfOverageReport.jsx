@@ -85,7 +85,7 @@ export default function TurfOverageReport() {
   const jobVariances = filteredJobs.map(job => {
     const jobAllocations = allocations.filter(a => a.job_id === job.id && a.item_type === 'roll');
     const totalAllocated = jobAllocations
-      .filter(a => a.status === 'Fulfilled')
+      .filter(a => a.status === 'Dispatched')
       .reduce((sum, a) => sum + (a.requested_length_ft || 0), 0);
     
     const returnTx = transactions.filter(t => 

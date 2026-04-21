@@ -69,9 +69,10 @@ export default function CutRoll() {
   const { data: jobs = [] } = useQuery({
     queryKey: ['jobs-active'],
     queryFn: async () => {
-      const draft = await base44.entities.Job.filter({ status: 'Draft' }, '-created_date', 50);
-      const fulfilling = await base44.entities.Job.filter({ status: 'Fulfilling' }, '-created_date', 50);
-      return [...draft, ...fulfilling];
+      // Active jobs that can still have rolls cut for them — exclude Archived, Completed, Dispatched.
+      const draft = await base44.entities.Job.filter({ status: 'Draft' }, '-created_date', 100);
+      const ready = await base44.entities.Job.filter({ status: 'Ready' }, '-created_date', 100);
+      return [...draft, ...ready];
     },
   });
 

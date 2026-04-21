@@ -302,12 +302,14 @@ export default function Receive() {
       const locationRow = row.location_row || row.row;
       const purchaseOrder = row.po || row.purchase_order;
 
-      const manufacturer = manufacturers.find(m => m.vendor_name === manufacturerName);
+      // Whitespace- and case-tolerant lookup (matches the same logic as the dropdowns)
+      const normalize = (s) => (s || '').replace(/\s+/g, '').toLowerCase();
+      const manufacturer = manufacturers.find(m => normalize(m.vendor_name) === normalize(manufacturerName));
       if (!manufacturer) {
         toast.error(`Row ${row._rowNum}: Manufacturer '${manufacturerName}' not found.`);
         continue;
       }
-      const product = products.find(p => p.product_name === productName);
+      const product = products.find(p => normalize(p.product_name) === normalize(productName));
       if (!product) {
         toast.error(`Row ${row._rowNum}: Product '${productName}' not found.`);
         continue;
