@@ -1,20 +1,16 @@
-/**
- * askAI — Base44 backend function.
- *
- * Chat endpoint for the TexasTurf Inventory Assistant. Encodes the Roll
- * Selection Guidelines SOP in the system prompt and exposes tools that
- * apply SOP priority rules (child-first, dye-lot consistency, etc.).
- *
- * Required env:  ANTHROPIC_API_KEY
- *
- * Request:       { messages: [{role, content}, ...] }
- * Response:      { reply: string, actionsTaken: string[], error?: string }
- */
+// deno-lint-ignore-file no-explicit-any
+// askAI — Base44 backend function (Deno runtime).
+//
+// Chat endpoint for the TexasTurf Inventory Assistant. Encodes the Roll
+// Selection Guidelines SOP in the system prompt and exposes tools that
+// apply SOP priority rules (child-first, dye-lot consistency, etc.).
+//
+// Required secret (set in Base44 Settings → Secrets):
+//   ANTHROPIC_API_KEY
 
-import Anthropic from '@anthropic-ai/sdk';
-import { createClientFromRequest } from '@base44/sdk';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 
-// Canonical statuses — mirror of rollStatus.js
+// ----- Canonical statuses (mirror of src/lib/rollStatus.js) -----
 const ROLL_STATUS = {
   AVAILABLE: 'Available',
   PLANNED: 'Planned',
@@ -28,12 +24,12 @@ const ROLL_STATUS = {
 };
 const ROLL_ACTIVE_JOB = ['Planned', 'Allocated', 'Staged', 'Dispatched'];
 
-function rollStatusFromAlloc(s) {
+function rollStatusFromAlloc(s: string) {
   if (s === 'Cancelled') return 'Available';
   return ROLL_ACTIVE_JOB.includes(s) ? s : null;
 }
 
-// ---------- Tools ----------
+// ----- Tool definitions exposed to Claude -----
 const TOOLS = [
   {
     name: 'search_rolls',
@@ -45,10 +41,7 @@ const TOOLS = [
       properties: {
         product_name: { type: 'string' },
         dye_lot: { type: 'string' },
-        status: {
-          type: 'string',
-          enum: Object.values(ROLL_STATUS),
-        },
+        status: { type: 'string', enum: Object.values(ROLL_STATUS) },
         tag: { type: 'string', description: 'TT SKU tag number or manufacturer roll number' },
         min_length_ft: { type: 'number' },
         max_results: { type: 'number' },
@@ -79,21 +72,17 @@ const TOOLS = [
   {
     name: 'suggest_rolls_for_job',
     description:
-      'Recommend rolls to plan for a specific linear run, applying the SOP priority rules: ' +
-      '(1) child rolls before parent rolls, (2) dye-lot consistency within the area, ' +
-      '(3) exact-length child rolls preferred, (4) older rolls before newer, ' +
-      '(5) more-accessible warehouse locations first. Returns ranked suggestions — ' +
-      'this tool does NOT modify data. Use for planning guidance before assign_roll_to_job.',
+      'Recommend rolls to plan for a specific linear run, applying SOP priority: ' +
+      'child rolls before parent rolls, dye-lot consistency, exact-length preferred, ' +
+      'older rolls first, more-accessible warehouse locations first. ' +
+      'Does NOT modify data. Use this before assign_roll_to_job for planning guidance.',
     input_schema: {
       type: 'object',
       properties: {
-        product_name: { type: 'string', description: 'SKU / product name to plan for' },
-        required_length_ft: { type: 'number', description: 'Linear feet needed for this run' },
-        width_ft: { type: 'number', description: 'Required width in feet (e.g., 15)' },
-        dye_lot: {
-          type: 'string',
-          description: 'If set, filter to this dye lot only (for continuous areas)',
-        },
+        product_name: { type: 'string' },
+        required_length_ft: { type: 'number' },
+        width_ft: { type: 'number' },
+        dye_lot: { type: 'string' },
         max_suggestions: { type: 'number' },
       },
       required: ['product_name', 'required_length_ft'],
@@ -103,9 +92,9 @@ const TOOLS = [
     name: 'assign_roll_to_job',
     description:
       'Assign a roll to a job. Creates an allocation and updates roll.status. ' +
-      'The SOP distinguishes two assignment phases: ' +
-      'Planned (Office, forecasting, any time) and Allocated (Warehouse, ~1 week before install). ' +
-      'Default is Planned. ALWAYS confirm the roll and job with the user before calling.',
+      'SOP distinguishes two phases: Planned (Office, forecasting) and Allocated ' +
+      '(Warehouse, ~1 week before install). Default is Planned. ' +
+      'ALWAYS confirm the roll and job with the user before calling.',
     input_schema: {
       type: 'object',
       properties: {
@@ -114,7 +103,6 @@ const TOOLS = [
         allocation_status: {
           type: 'string',
           enum: ['Planned', 'Allocated', 'Staged'],
-          description: 'Initial status (default Planned per SOP)',
         },
       },
       required: ['roll_id', 'job_id'],
@@ -134,10 +122,8 @@ const TOOLS = [
   {
     name: 'update_roll_status',
     description:
-      'Manually change a roll to a non-job status ' +
-      '(AwaitingLocation, ReturnedHold, Consumed, Scrapped) or back to Available when ' +
-      'no allocation exists. For job assignment/release, use assign_roll_to_job or ' +
-      'release_roll_from_job instead.',
+      'Manually change a roll to a non-job status (AwaitingLocation, ReturnedHold, ' +
+      'Consumed, Scrapped) or back to Available when no allocation exists.',
     input_schema: {
       type: 'object',
       properties: {
@@ -152,68 +138,61 @@ const TOOLS = [
   },
   {
     name: 'get_dashboard_stats',
-    description: 'Live dashboard: total rolls, sq ft, counts by status, low-stock products.',
+    description: 'Live dashboard stats: totals, counts by status, low-stock products.',
     input_schema: { type: 'object', properties: {} },
   },
 ];
 
-// ---------- SOP-aware helpers ----------
-
-/**
- * Rank rolls for planning per SOP Step 4-7:
- *   - Child rolls before parent rolls
- *   - Exact-length match > slight-over > significantly-over
- *   - Older (earlier date_received) before newer
- *   - More-accessible warehouse locations first (bin sort_order, row depth)
- *   - Minimum-child-length protection: flag child rolls under 20 LF (TBD rule)
- */
-function rankRollsForPlanning(rolls, requiredLengthFt) {
+// ----- SOP-aware ranking -----
+function rankRollsForPlanning(rolls: any[], requiredLengthFt: number) {
   const PROTECTED_CHILD_MIN_FT = 20;
-
-  const score = (r) => {
+  const score = (r: any) => {
     let s = 0;
-    // 1. Child preferred
     if (r.roll_type === 'Child') s += 1000;
-    // 2. Length fit — closer to required is better (if >=)
     const len = r.current_length_ft || 0;
     if (len >= requiredLengthFt) {
       const overshoot = len - requiredLengthFt;
       s += 500 - Math.min(overshoot * 2, 400);
     } else {
-      s -= 2000; // too short to fulfill solo
+      s -= 2000;
     }
-    // 3. Older preferred (slightly)
     if (r.date_received) {
-      const ageDays = (Date.now() - new Date(r.date_received)) / (1000 * 60 * 60 * 24);
+      const ageDays = (Date.now() - new Date(r.date_received).getTime()) / (1000 * 60 * 60 * 24);
       s += Math.min(ageDays / 10, 50);
     }
-    // 4. Warehouse accessibility — row A (front) > B > C
     if (r.location_row === 'A') s += 30;
     else if (r.location_row === 'B') s += 15;
-
     return s;
   };
-
   return rolls
-    .map(r => {
+    .map((r: any) => {
       const s = score(r);
-      const warnings = [];
+      const warnings: string[] = [];
       if (r.roll_type === 'Child' && (r.current_length_ft || 0) < PROTECTED_CHILD_MIN_FT) {
-        warnings.push(`Short child roll (${r.current_length_ft}ft < ${PROTECTED_CHILD_MIN_FT}ft) — SOP suggests preserving for future small jobs`);
+        warnings.push(
+          `Short child roll (${r.current_length_ft}ft < ${PROTECTED_CHILD_MIN_FT}ft) — SOP suggests preserving for future small jobs`,
+        );
       }
       if ((r.current_length_ft || 0) < requiredLengthFt) {
-        warnings.push(`Only ${r.current_length_ft}ft available — shorter than the ${requiredLengthFt}ft requested run`);
+        warnings.push(
+          `Only ${r.current_length_ft}ft available — shorter than the ${requiredLengthFt}ft requested run`,
+        );
       }
       return { ...r, _score: s, _warnings: warnings };
     })
-    .sort((a, b) => b._score - a._score);
+    .sort((a: any, b: any) => b._score - a._score);
 }
 
-// ---------- Tool execution ----------
-async function executeTool(base44, name, args, actionsTaken) {
+// ----- Tool execution -----
+async function executeTool(
+  base44: any,
+  name: string,
+  args: any,
+  actionsTaken: string[],
+): Promise<any> {
   switch (name) {
     case 'search_rolls': {
-      const filters = {};
+      const filters: any = {};
       if (args.status) filters.status = args.status;
       if (args.dye_lot) filters.dye_lot = args.dye_lot;
       const max = args.max_results || 20;
@@ -221,20 +200,21 @@ async function executeTool(base44, name, args, actionsTaken) {
       let filtered = all;
       if (args.product_name) {
         const q = args.product_name.toLowerCase();
-        filtered = filtered.filter(r => r.product_name?.toLowerCase().includes(q));
+        filtered = filtered.filter((r: any) => r.product_name?.toLowerCase().includes(q));
       }
       if (args.tag) {
         const q = args.tag.toLowerCase();
-        filtered = filtered.filter(r =>
-          r.tt_sku_tag_number?.toLowerCase().includes(q) ||
-          r.roll_tag?.toLowerCase().includes(q) ||
-          r.manufacturer_roll_number?.toLowerCase().includes(q)
+        filtered = filtered.filter(
+          (r: any) =>
+            r.tt_sku_tag_number?.toLowerCase().includes(q) ||
+            r.roll_tag?.toLowerCase().includes(q) ||
+            r.manufacturer_roll_number?.toLowerCase().includes(q),
         );
       }
       if (args.min_length_ft != null) {
-        filtered = filtered.filter(r => (r.current_length_ft || 0) >= args.min_length_ft);
+        filtered = filtered.filter((r: any) => (r.current_length_ft || 0) >= args.min_length_ft);
       }
-      return filtered.slice(0, max).map(r => ({
+      return filtered.slice(0, max).map((r: any) => ({
         id: r.id,
         tag: r.tt_sku_tag_number || r.roll_tag,
         product_name: r.product_name,
@@ -255,20 +235,21 @@ async function executeTool(base44, name, args, actionsTaken) {
     }
 
     case 'search_jobs': {
-      const filters = {};
+      const filters: any = {};
       if (args.status) filters.status = args.status;
       const all = await base44.entities.Job.filter(filters, '-created_date', 200);
       const max = args.max_results || 20;
       let filtered = all;
       if (args.query) {
         const q = args.query.toLowerCase();
-        filtered = filtered.filter(j =>
-          j.job_number?.toLowerCase().includes(q) ||
-          j.job_name?.toLowerCase().includes(q) ||
-          j.customer_name?.toLowerCase().includes(q)
+        filtered = filtered.filter(
+          (j: any) =>
+            j.job_number?.toLowerCase().includes(q) ||
+            j.job_name?.toLowerCase().includes(q) ||
+            j.customer_name?.toLowerCase().includes(q),
         );
       }
-      return filtered.slice(0, max).map(j => ({
+      return filtered.slice(0, max).map((j: any) => ({
         id: j.id,
         job_number: j.job_number,
         job_name: j.job_name,
@@ -283,22 +264,19 @@ async function executeTool(base44, name, args, actionsTaken) {
       const all = await base44.entities.Roll.filter(
         { status: ROLL_STATUS.AVAILABLE },
         '-created_date',
-        1000
+        1000,
       );
-      let candidates = all.filter(r => r.product_name?.toLowerCase().includes(q));
+      let candidates = all.filter((r: any) => r.product_name?.toLowerCase().includes(q));
       if (args.width_ft) {
-        candidates = candidates.filter(r => Number(r.width_ft) === Number(args.width_ft));
+        candidates = candidates.filter((r: any) => Number(r.width_ft) === Number(args.width_ft));
       }
       if (args.dye_lot) {
-        candidates = candidates.filter(r => r.dye_lot === args.dye_lot);
+        candidates = candidates.filter((r: any) => r.dye_lot === args.dye_lot);
       }
-
       const ranked = rankRollsForPlanning(candidates, args.required_length_ft);
-      const topN = (args.max_suggestions || 5);
+      const topN = args.max_suggestions || 5;
 
-      // Also group top candidates by dye lot so the user can see dye-lot
-      // consistency options (SOP Step 8).
-      const byDyeLot = {};
+      const byDyeLot: any = {};
       for (const r of ranked.slice(0, 50)) {
         const key = r.dye_lot || '(no dye lot)';
         if (!byDyeLot[key]) byDyeLot[key] = { dye_lot: key, rolls: [], total_length_ft: 0 };
@@ -308,16 +286,17 @@ async function executeTool(base44, name, args, actionsTaken) {
           length_ft: r.current_length_ft,
           width_ft: r.width_ft,
           roll_type: r.roll_type,
-          location: r.location_bin && r.location_row ? `${r.location_bin}-${r.location_row}` : null,
+          location:
+            r.location_bin && r.location_row ? `${r.location_bin}-${r.location_row}` : null,
         });
-        byDyeLot[key].total_length_ft += (r.current_length_ft || 0);
+        byDyeLot[key].total_length_ft += r.current_length_ft || 0;
       }
 
       return {
         sop_summary:
-          "Ranked per SOP: child rolls first, exact-length preferred, older rolls first, " +
-          "front-row locations preferred. Check dye-lot consistency before confirming.",
-        top_suggestions: ranked.slice(0, topN).map(r => ({
+          'Ranked per SOP: child rolls first, exact-length preferred, older rolls first, ' +
+          'front-row locations preferred. Check dye-lot consistency before confirming.',
+        top_suggestions: ranked.slice(0, topN).map((r: any) => ({
           id: r.id,
           tag: r.tt_sku_tag_number || r.roll_tag,
           product_name: r.product_name,
@@ -325,12 +304,13 @@ async function executeTool(base44, name, args, actionsTaken) {
           width_ft: r.width_ft,
           current_length_ft: r.current_length_ft,
           roll_type: r.roll_type,
-          location: r.location_bin && r.location_row ? `${r.location_bin}-${r.location_row}` : null,
+          location:
+            r.location_bin && r.location_row ? `${r.location_bin}-${r.location_row}` : null,
           date_received: r.date_received,
           warnings: r._warnings,
         })),
         by_dye_lot: Object.values(byDyeLot)
-          .sort((a, b) => b.total_length_ft - a.total_length_ft)
+          .sort((a: any, b: any) => b.total_length_ft - a.total_length_ft)
           .slice(0, 5),
       };
     }
@@ -342,7 +322,7 @@ async function executeTool(base44, name, args, actionsTaken) {
       if (!job) return { error: 'Job not found' };
       if (ROLL_ACTIVE_JOB.includes(roll.status)) {
         return {
-          error: `Roll is already ${roll.status} on another job. Release it first or ask the user to confirm swap.`,
+          error: `Roll is already ${roll.status} on another job. Release it first or ask for swap confirmation.`,
           current_job_id: roll.allocated_job_id,
         };
       }
@@ -364,7 +344,7 @@ async function executeTool(base44, name, args, actionsTaken) {
         allocated_job_id: job.id,
       });
       actionsTaken.push(
-        `Assigned roll ${roll.tt_sku_tag_number || roll.roll_tag} to job ${job.job_number} (${allocStatus})`
+        `Assigned roll ${roll.tt_sku_tag_number || roll.roll_tag} to job ${job.job_number} (${allocStatus})`,
       );
       return { ok: true, allocation_id: alloc.id };
     }
@@ -373,10 +353,11 @@ async function executeTool(base44, name, args, actionsTaken) {
       const [roll] = await base44.entities.Roll.filter({ id: args.roll_id });
       if (!roll) return { error: 'Roll not found' };
       const allAllocs = await base44.entities.Allocation.list();
-      const active = allAllocs.find(a =>
-        (a.allocated_roll_ids || []).includes(roll.id) &&
-        a.status !== 'Cancelled' &&
-        a.status !== 'Completed'
+      const active = allAllocs.find(
+        (a: any) =>
+          (a.allocated_roll_ids || []).includes(roll.id) &&
+          a.status !== 'Cancelled' &&
+          a.status !== 'Completed',
       );
       if (active) await base44.entities.Allocation.delete(active.id);
       await base44.entities.Roll.update(roll.id, {
@@ -400,19 +381,23 @@ async function executeTool(base44, name, args, actionsTaken) {
         base44.entities.Allocation.list(),
       ]);
       const terminal = ['Consumed', 'Scrapped'];
-      const active = rolls.filter(r => !terminal.includes(r.status));
-      const available = rolls.filter(r => r.status === ROLL_STATUS.AVAILABLE);
-      const byStatus = {};
+      const active = rolls.filter((r: any) => !terminal.includes(r.status));
+      const available = rolls.filter((r: any) => r.status === ROLL_STATUS.AVAILABLE);
+      const byStatus: any = {};
       for (const r of rolls) byStatus[r.status] = (byStatus[r.status] || 0) + 1;
-      const totalSqft = available.reduce((s, r) => s + (r.current_length_ft * r.width_ft || 0), 0);
-
-      const lowStock = products.filter(p => {
-        if (!p.min_stock_level_ft) return false;
-        const total = available
-          .filter(r => r.product_id === p.id)
-          .reduce((s, r) => s + (r.current_length_ft || 0), 0);
-        return total < p.min_stock_level_ft;
-      }).map(p => ({ product_name: p.product_name, min_ft: p.min_stock_level_ft }));
+      const totalSqft = available.reduce(
+        (s: number, r: any) => s + (r.current_length_ft * r.width_ft || 0),
+        0,
+      );
+      const lowStock = products
+        .filter((p: any) => {
+          if (!p.min_stock_level_ft) return false;
+          const total = available
+            .filter((r: any) => r.product_id === p.id)
+            .reduce((s: number, r: any) => s + (r.current_length_ft || 0), 0);
+          return total < p.min_stock_level_ft;
+        })
+        .map((p: any) => ({ product_name: p.product_name, min_ft: p.min_stock_level_ft }));
 
       return {
         total_rolls_active: active.length,
@@ -420,7 +405,9 @@ async function executeTool(base44, name, args, actionsTaken) {
         total_sqft_available: Math.round(totalSqft),
         rolls_by_status: byStatus,
         low_stock_products: lowStock,
-        active_allocations: allocations.filter(a => a.status !== 'Cancelled' && a.status !== 'Completed').length,
+        active_allocations: allocations.filter(
+          (a: any) => a.status !== 'Cancelled' && a.status !== 'Completed',
+        ).length,
       };
     }
 
@@ -429,7 +416,7 @@ async function executeTool(base44, name, args, actionsTaken) {
   }
 }
 
-// ---------- System prompt ----------
+// ----- System prompt -----
 const SYSTEM_PROMPT = `You are the TexasTurf Inventory Assistant embedded in the roll inventory app. You encode and enforce the Roll Selection Guidelines SOP.
 
 TAXONOMY (SOP)
@@ -452,49 +439,75 @@ When planning rolls for a job, always follow this order:
 8. Evaluate across upcoming jobs, not just the current one
 
 BEHAVIOR RULES
-- For write actions (assign, release, update status), briefly confirm with the user before executing — UNLESS they've given clear authorization in their latest message ("Assign roll 1234 to job 9001" is authorization; "What rolls are on job 9001?" is not).
+- For write actions (assign, release, update status), briefly confirm with the user before executing — UNLESS they've given clear authorization in their latest message.
 - Resolve names/tags to ids using search_rolls / search_jobs before acting. Never guess ids.
 - If a search is ambiguous, ask the user to disambiguate.
-- When the user asks "what rolls should I plan for job X / run Y / SKU Z", use suggest_rolls_for_job and present the SOP-ranked suggestions, NOT just a raw search.
-- When suggesting rolls, surface any warnings from the tool (short child rolls, length shortfalls, dye-lot mix risk).
+- When the user asks "what rolls should I plan for job X / run Y / SKU Z", use suggest_rolls_for_job and present the SOP-ranked suggestions.
+- Surface any warnings from the tool (short child rolls, length shortfalls, dye-lot mix risk).
 - Be concise. This is a work tool.
-- Don't invent SOP rules. If the SOP is silent on something, say so and defer to the user.
 `;
 
-// ---------- Handler ----------
-export default async function handler(req, res) {
+// ----- Deno handler -----
+Deno.serve(async (req: Request) => {
   try {
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
-    const { messages } = req.body || {};
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: 'messages array required' });
+    if (req.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
-
-    const anthropic = new Anthropic({ apiKey });
     const base44 = createClientFromRequest(req);
-    const actionsTaken = [];
+    const user = await base44.auth.me();
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
+    const { messages } = await req.json();
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return Response.json({ error: 'messages array required' }, { status: 400 });
+    }
+
+    const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+    if (!apiKey) {
+      return Response.json(
+        { error: 'ANTHROPIC_API_KEY not configured in Base44 secrets' },
+        { status: 500 },
+      );
+    }
+
+    const actionsTaken: string[] = [];
     let conversation = [...messages];
     const MAX_ITERATIONS = 8;
 
     for (let i = 0; i < MAX_ITERATIONS; i += 1) {
-      const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 2048,
-        system: SYSTEM_PROMPT,
-        tools: TOOLS,
-        messages: conversation,
+      const anthropicResp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-5',
+          max_tokens: 2048,
+          system: SYSTEM_PROMPT,
+          tools: TOOLS,
+          messages: conversation,
+        }),
       });
 
-      const textBlocks = response.content.filter(b => b.type === 'text').map(b => b.text);
-      const toolUses = response.content.filter(b => b.type === 'tool_use');
+      if (!anthropicResp.ok) {
+        const errText = await anthropicResp.text();
+        return Response.json(
+          { error: `Anthropic API error (${anthropicResp.status}): ${errText}` },
+          { status: 500 },
+        );
+      }
+
+      const response = await anthropicResp.json();
+      const textBlocks = (response.content || [])
+        .filter((b: any) => b.type === 'text')
+        .map((b: any) => b.text);
+      const toolUses = (response.content || []).filter((b: any) => b.type === 'tool_use');
 
       if (response.stop_reason === 'end_turn' || toolUses.length === 0) {
-        return res.status(200).json({
+        return Response.json({
           reply: textBlocks.join('\n\n').trim() || '(no reply)',
           actionsTaken,
         });
@@ -502,7 +515,7 @@ export default async function handler(req, res) {
 
       conversation.push({ role: 'assistant', content: response.content });
 
-      const toolResults = [];
+      const toolResults: any[] = [];
       for (const tu of toolUses) {
         try {
           const result = await executeTool(base44, tu.name, tu.input || {}, actionsTaken);
@@ -511,7 +524,7 @@ export default async function handler(req, res) {
             tool_use_id: tu.id,
             content: JSON.stringify(result),
           });
-        } catch (e) {
+        } catch (e: any) {
           toolResults.push({
             type: 'tool_result',
             tool_use_id: tu.id,
@@ -523,12 +536,12 @@ export default async function handler(req, res) {
       conversation.push({ role: 'user', content: toolResults });
     }
 
-    return res.status(200).json({
+    return Response.json({
       reply: 'Hit tool-use iteration limit. Try rephrasing?',
       actionsTaken,
     });
-  } catch (e) {
+  } catch (e: any) {
     console.error('askAI error', e);
-    return res.status(500).json({ error: e.message || 'Internal error' });
+    return Response.json({ error: e.message || 'Internal error' }, { status: 500 });
   }
-}
+});
