@@ -33,6 +33,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import GlobalSearch from '@/components/GlobalSearch';
+import InventoryAssistant from '@/components/InventoryAssistant';
 
 const navItems = [
   { name: 'Dashboard', page: 'Dashboard', icon: LayoutDashboard },
@@ -249,6 +250,9 @@ export default function Layout({ children, currentPageName }) {
           {children}
         </div>
       </main>
+
+      {/* Floating AI Assistant (on every page) */}
+      <InventoryAssistant />
     </div>
   );
 }

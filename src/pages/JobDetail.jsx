@@ -48,6 +48,16 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import OwnerBadge from '@/components/ui/OwnerBadge';
 import SwapRollDialog from '@/components/job/SwapRollDialog';
 import { format } from 'date-fns';
+import {
+  ROLL_STATUS,
+  ALLOCATION_STATUS,
+  ALLOCATION_STATUS_OPTIONS,
+  STATUS_LABELS,
+  createAllocationWithSync,
+  updateAllocationStatusWithSync,
+  deleteAllocationWithSync,
+  releaseRoll,
+} from '@/lib/rollStatus';
 
 export default function JobDetail() {
   const queryClient = useQueryClient();
@@ -133,7 +143,8 @@ export default function JobDetail() {
     mutationFn: async (items) => {
       for (const item of items) {
         if (item.type === 'roll') {
-          await base44.entities.Allocation.create({
+          // createAllocationWithSync also updates the roll's status + allocated_job_id
+          await createAllocationWithSync({
             job_id: jobId,
             job_name: job.job_name || job.job_number,
             product_id: item.product_id,
@@ -143,7 +154,7 @@ export default function JobDetail() {
             requested_length_ft: item.current_length_ft,
             allocated_roll_ids: [item.id],
             item_type: 'roll',
-            status: 'Planned'
+            status: ALLOCATION_STATUS.PLANNED,
           });
         } else if (item.type === 'inventory_item') {
           await base44.entities.Allocation.create({
@@ -154,40 +165,49 @@ export default function JobDetail() {
             item_type: 'inventory_item',
             requested_quantity: item.requested_quantity || 1,
             unit_of_measure: item.unit_of_measure,
-            status: 'Planned'
+            status: ALLOCATION_STATUS.PLANNED,
           });
         }
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['allocations'] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       setShowAddProducts(false);
       setSelectedItems([]);
       setSearchTerm('');
       toast.success('Items added to job');
-    }
+    },
   });
 
   const deleteAllocationMutation = useMutation({
     mutationFn: async (allocationId) => {
-      await base44.entities.Allocation.delete(allocationId);
+      // Find the full allocation object so we can release its rolls.
+      const allocation = allocations.find(a => a.id === allocationId);
+      await deleteAllocationWithSync(allocation);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['allocations'] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
-      toast.success('Allocation removed');
-    }
+      toast.success('Allocation removed and rolls released');
+    },
   });
 
   const updateAllocationStatusMutation = useMutation({
     mutationFn: async ({ allocationId, status }) => {
-      await base44.entities.Allocation.update(allocationId, { status });
+      const allocation = allocations.find(a => a.id === allocationId);
+      await updateAllocationStatusWithSync(allocationId, status, allocation);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['allocations'] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
       toast.success('Allocation status updated');
-    }
+    },
   });
 
   const completeJobMutation = useMutation({
@@ -1067,7 +1087,7 @@ export default function JobDetail() {
                     </TableCell>
                     <TableCell>
                       <Select
-                        value={allocation.status}
+                        value={allocation.status || ALLOCATION_STATUS.PLANNED}
                         onValueChange={(newStatus) => updateAllocationStatusMutation.mutate({ allocationId: allocation.id, status: newStatus })}
                         disabled={updateAllocationStatusMutation.isPending}
                       >
@@ -1075,11 +1095,9 @@ export default function JobDetail() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Planned">Planned</SelectItem>
-                          <SelectItem value="Allocated">Allocated</SelectItem>
-                          <SelectItem value="Staged">Staged</SelectItem>
-                          <SelectItem value="Dispatched">Dispatched</SelectItem>
-                          <SelectItem value="Cancelled">Cancelled</SelectItem>
+                          {ALLOCATION_STATUS_OPTIONS.map(s => (
+                            <SelectItem key={s} value={s}>{STATUS_LABELS[s] || s}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </TableCell>

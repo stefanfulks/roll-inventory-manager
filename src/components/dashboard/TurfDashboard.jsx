@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import StatCard from '@/components/ui/StatCard';
@@ -7,6 +7,7 @@ import { Package, Ruler, AlertTriangle, Clock } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { format } from 'date-fns';
 import ForecastChart from '@/components/dashboard/ForecastChart';
+import { ROLL_STATUS } from '@/lib/rollStatus';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
@@ -19,15 +20,20 @@ export default function TurfDashboard({
   settings, 
   visibleCharts 
 }) {
+  const navigate = useNavigate();
   const [showLowInventoryDialog, setShowLowInventoryDialog] = useState(false);
   const [showSittingInventoryDialog, setShowSittingInventoryDialog] = useState(false);
   const [shippedTimeRange, setShippedTimeRange] = useState('all');
 
   const allRolls = rolls;
-  const availableRolls = allRolls.filter(r => r.status === 'Available');
-  const totalRolls = availableRolls.length;
-  const parentRolls = allRolls.filter(r => r.roll_type === 'Parent');
-  const childRolls = allRolls.filter(r => r.roll_type === 'Child');
+  const availableRolls = allRolls.filter(r => r.status === ROLL_STATUS.AVAILABLE);
+  // Total Rolls now counts ALL non-terminal rolls (Available + on-hold/allocated/etc.)
+  // so counts don't silently hide when statuses change.
+  const terminalStatuses = [ROLL_STATUS.CONSUMED, ROLL_STATUS.SCRAPPED];
+  const activeRolls = allRolls.filter(r => !terminalStatuses.includes(r.status));
+  const totalRolls = activeRolls.length;
+  const parentRolls = activeRolls.filter(r => r.roll_type === 'Parent');
+  const childRolls = activeRolls.filter(r => r.roll_type === 'Child');
   const totalSqft = availableRolls.reduce((sum, r) => sum + r.current_length_ft * r.width_ft, 0);
 
   const getSetting = (key, defaultValue) => {
@@ -126,23 +132,33 @@ export default function TurfDashboard({
     <div className="space-y-6">
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Rolls"
-          value={totalRolls.toLocaleString()}
-          subtitle={`${parentRolls.length} parent, ${childRolls.length} child`}
-          icon={Package}
-          iconBg="bg-emerald-100"
-          iconColor="text-emerald-600"
-        />
+        <div
+          onClick={() => navigate(createPageUrl('Inventory'))}
+          className="cursor-pointer hover:opacity-80 transition-opacity"
+        >
+          <StatCard
+            title="Total Rolls"
+            value={totalRolls.toLocaleString()}
+            subtitle={`${parentRolls.length} parent, ${childRolls.length} child`}
+            icon={Package}
+            iconBg="bg-emerald-100"
+            iconColor="text-emerald-600"
+          />
+        </div>
 
-        <StatCard
-          title="Total Sq Ft in Stock"
-          value={totalSqft.toLocaleString()}
-          subtitle={`${availableRolls.length} available rolls`}
-          icon={Ruler}
-          iconBg="bg-blue-100"
-          iconColor="text-blue-600"
-        />
+        <div
+          onClick={() => navigate(createPageUrl(`Inventory?status=${ROLL_STATUS.AVAILABLE}`))}
+          className="cursor-pointer hover:opacity-80 transition-opacity"
+        >
+          <StatCard
+            title="Total Sq Ft in Stock"
+            value={totalSqft.toLocaleString()}
+            subtitle={`${availableRolls.length} available rolls`}
+            icon={Ruler}
+            iconBg="bg-blue-100"
+            iconColor="text-blue-600"
+          />
+        </div>
 
         <div 
           onClick={() => lowInventoryProducts.length > 0 && setShowLowInventoryDialog(true)}
@@ -202,7 +218,15 @@ export default function TurfDashboard({
                       return null;
                     }}
                   />
-                  <Bar dataKey="value" fill="#87c71a" radius={[8, 8, 0, 0]} />
+                  <Bar
+                    dataKey="value"
+                    fill="#87c71a"
+                    radius={[8, 8, 0, 0]}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(data) =>
+                      navigate(createPageUrl(`Inventory?product=${encodeURIComponent(data.name)}&status=${ROLL_STATUS.AVAILABLE}`))
+                    }
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -255,7 +279,15 @@ export default function TurfDashboard({
                   <XAxis type="number" tick={{ fontSize: 12 }} />
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
                   <Tooltip formatter={(value) => `${value} jobs`} />
-                  <Bar dataKey="value" fill="#10b981" radius={[0, 4, 4, 0]} />
+                  <Bar
+                    dataKey="value"
+                    fill="#10b981"
+                    radius={[0, 4, 4, 0]}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(data) =>
+                      navigate(createPageUrl(`Inventory?product=${encodeURIComponent(data.name)}`))
+                    }
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -272,7 +304,13 @@ export default function TurfDashboard({
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 12 }} />
                   <Tooltip />
-                  <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="value"
+                    fill="#3b82f6"
+                    radius={[4, 4, 0, 0]}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => navigate(createPageUrl(`Inventory?status=${ROLL_STATUS.AVAILABLE}`))}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -287,8 +325,8 @@ export default function TurfDashboard({
                 <PieChart>
                   <Pie
                     data={[
-                      { name: 'Parent Rolls', value: parentRolls.length },
-                      { name: 'Child Rolls', value: childRolls.length }
+                      { name: 'Parent Rolls', value: parentRolls.length, type: 'Parent' },
+                      { name: 'Child Rolls', value: childRolls.length, type: 'Child' }
                     ]}
                     cx="50%"
                     cy="50%"
@@ -298,6 +336,10 @@ export default function TurfDashboard({
                     dataKey="value"
                     label={({ name, value }) => `${name}: ${value}`}
                     labelLine={false}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(data) =>
+                      navigate(createPageUrl(`Inventory?type=${data.type}`))
+                    }
                   >
                     <Cell fill="#64748b" />
                     <Cell fill="#8b5cf6" />
@@ -336,8 +378,26 @@ export default function TurfDashboard({
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="full" stackId="a" fill="#10b981" name="Full Rolls" />
-                  <Bar dataKey="partial" stackId="a" fill="#f59e0b" name="Partial Rolls" />
+                  <Bar
+                    dataKey="full"
+                    stackId="a"
+                    fill="#10b981"
+                    name="Full Rolls"
+                    style={{ cursor: 'pointer' }}
+                    onClick={(data) =>
+                      navigate(createPageUrl(`Inventory?product=${encodeURIComponent(data.name)}&status=${ROLL_STATUS.AVAILABLE}`))
+                    }
+                  />
+                  <Bar
+                    dataKey="partial"
+                    stackId="a"
+                    fill="#f59e0b"
+                    name="Partial Rolls"
+                    style={{ cursor: 'pointer' }}
+                    onClick={(data) =>
+                      navigate(createPageUrl(`Inventory?product=${encodeURIComponent(data.name)}&status=${ROLL_STATUS.AVAILABLE}`))
+                    }
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -371,8 +431,26 @@ export default function TurfDashboard({
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
                   <Tooltip formatter={(value) => `${value.toLocaleString()} sq ft`} />
                   <Legend />
-                  <Bar dataKey="full" stackId="a" fill="#10b981" name="Full Rolls" />
-                  <Bar dataKey="partial" stackId="a" fill="#f59e0b" name="Partial Rolls" />
+                  <Bar
+                    dataKey="full"
+                    stackId="a"
+                    fill="#10b981"
+                    name="Full Rolls"
+                    style={{ cursor: 'pointer' }}
+                    onClick={(data) =>
+                      navigate(createPageUrl(`Inventory?product=${encodeURIComponent(data.name)}&status=${ROLL_STATUS.AVAILABLE}`))
+                    }
+                  />
+                  <Bar
+                    dataKey="partial"
+                    stackId="a"
+                    fill="#f59e0b"
+                    name="Partial Rolls"
+                    style={{ cursor: 'pointer' }}
+                    onClick={(data) =>
+                      navigate(createPageUrl(`Inventory?product=${encodeURIComponent(data.name)}&status=${ROLL_STATUS.AVAILABLE}`))
+                    }
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>

@@ -35,6 +35,17 @@ import { Label } from '@/components/ui/label';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import {
+  ROLL_STATUS,
+  ALLOCATION_STATUS,
+  ROLL_STATUS_OPTIONS,
+  MANUAL_ROLL_STATUS_OPTIONS,
+  ROLL_ACTIVE_JOB_STATUSES,
+  STATUS_LABELS,
+  createAllocationWithSync,
+  setRollStatusManually,
+  findActiveAllocationForRoll,
+} from '@/lib/rollStatus';
 
 export default function RollDetail() {
   const queryClient = useQueryClient();
@@ -44,6 +55,8 @@ export default function RollDetail() {
   const [showAllocateDialog, setShowAllocateDialog] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState('');
   const [actionType, setActionType] = useState(''); // 'plan' or 'allocate'
+  const [showStatusEditor, setShowStatusEditor] = useState(false);
+  const [newStatusValue, setNewStatusValue] = useState('');
 
   const { data: roll, isLoading } = useQuery({
     queryKey: ['roll', rollId],
@@ -79,12 +92,18 @@ export default function RollDetail() {
     },
   });
 
+  const { data: allAllocations = [] } = useQuery({
+    queryKey: ['allocations'],
+    queryFn: () => base44.entities.Allocation.list(),
+  });
+
   const planForJobMutation = useMutation({
     mutationFn: async (jobId) => {
       const user = await base44.auth.me();
       const job = jobs.find(j => j.id === jobId);
 
-      await base44.entities.Allocation.create({
+      // createAllocationWithSync also updates roll.status to Planned.
+      await createAllocationWithSync({
         job_id: jobId,
         job_name: job.job_name || job.job_number,
         product_id: roll.product_id,
@@ -94,10 +113,8 @@ export default function RollDetail() {
         requested_length_ft: roll.current_length_ft,
         allocated_roll_ids: [roll.id],
         item_type: 'roll',
-        status: 'Planned'
+        status: ALLOCATION_STATUS.PLANNED,
       });
-
-      await base44.entities.Roll.update(roll.id, { status: 'Planned', allocated_job_id: jobId });
 
       await base44.entities.Transaction.create({
         transaction_type: 'PlanForJob',
@@ -110,7 +127,7 @@ export default function RollDetail() {
         dye_lot: roll.dye_lot,
         width_ft: roll.width_ft,
         performed_by: user.full_name || user.email,
-        notes: `Planned for job ${job.job_number}`
+        notes: `Temp hold for job ${job.job_number}`,
       });
     },
     onSuccess: () => {
@@ -119,8 +136,8 @@ export default function RollDetail() {
       queryClient.invalidateQueries({ queryKey: ['allocations'] });
       setShowPlanDialog(false);
       setSelectedJobId('');
-      toast.success('Roll planned for job');
-    }
+      toast.success('Roll placed on temp hold for job');
+    },
   });
 
   const allocateForJobMutation = useMutation({
@@ -128,7 +145,7 @@ export default function RollDetail() {
       const user = await base44.auth.me();
       const job = jobs.find(j => j.id === jobId);
 
-      await base44.entities.Allocation.create({
+      await createAllocationWithSync({
         job_id: jobId,
         job_name: job.job_name || job.job_number,
         product_id: roll.product_id,
@@ -138,10 +155,8 @@ export default function RollDetail() {
         requested_length_ft: roll.current_length_ft,
         allocated_roll_ids: [roll.id],
         item_type: 'roll',
-        status: 'Allocated'
+        status: ALLOCATION_STATUS.ALLOCATED,
       });
-
-      await base44.entities.Roll.update(roll.id, { status: 'Allocated', allocated_job_id: jobId });
 
       await base44.entities.Transaction.create({
         transaction_type: 'AllocateForJob',
@@ -154,7 +169,7 @@ export default function RollDetail() {
         dye_lot: roll.dye_lot,
         width_ft: roll.width_ft,
         performed_by: user.full_name || user.email,
-        notes: `Allocated for job ${job.job_number}`
+        notes: `Allocated for job ${job.job_number}`,
       });
     },
     onSuccess: () => {
@@ -164,7 +179,25 @@ export default function RollDetail() {
       setShowAllocateDialog(false);
       setSelectedJobId('');
       toast.success('Roll allocated for job');
-    }
+    },
+  });
+
+  const changeStatusMutation = useMutation({
+    mutationFn: async (newStatus) => {
+      const result = await setRollStatusManually(roll, newStatus, allAllocations);
+      if (!result.ok) throw new Error(result.error);
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roll', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      queryClient.invalidateQueries({ queryKey: ['allocations'] });
+      setShowStatusEditor(false);
+      toast.success('Status updated');
+    },
+    onError: (err) => {
+      toast.error(err.message || 'Failed to update status');
+    },
   });
 
 
@@ -213,7 +246,16 @@ export default function RollDetail() {
           </div>
         </div>
         <div className="flex gap-2">
-          {roll.status === 'Available' && roll.current_length_ft > 0 && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              setNewStatusValue(roll.status);
+              setShowStatusEditor(true);
+            }}
+          >
+            Edit Status
+          </Button>
+          {roll.status === ROLL_STATUS.AVAILABLE && roll.current_length_ft > 0 && (
             <>
               <Button 
                 onClick={() => {
@@ -245,7 +287,7 @@ export default function RollDetail() {
               </Link>
             </>
           )}
-          {(roll.status === 'Allocated' || roll.status === 'Staged' || roll.status === 'Planned') && roll.allocated_job_id && (
+          {ROLL_ACTIVE_JOB_STATUSES.includes(roll.status) && roll.allocated_job_id && (
             <Link to={createPageUrl(`JobDetail?id=${roll.allocated_job_id}`)}>
               <Button
                 variant="outline"
@@ -469,6 +511,59 @@ export default function RollDetail() {
         </div>
       </div>
 
+      {/* Edit Status Dialog */}
+      <Dialog open={showStatusEditor} onOpenChange={setShowStatusEditor}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Roll Status</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {findActiveAllocationForRoll(roll.id, allAllocations) && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+                This roll is allocated to a job. Changing to a job-state status (Planned / Allocated / Staged / Dispatched) will update the associated allocation. To release the roll, cancel or delete the allocation from the job page.
+              </div>
+            )}
+            <div>
+              <Label htmlFor="status-select">Status</Label>
+              <Select value={newStatusValue} onValueChange={setNewStatusValue}>
+                <SelectTrigger id="status-select" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLL_STATUS_OPTIONS.map(s => {
+                    const hasAlloc = !!findActiveAllocationForRoll(roll.id, allAllocations);
+                    // If allocated, only allow switching between job-state statuses
+                    // (plus leaving it untouched) — disable Available/terminal states
+                    // to force the user through the allocation flow.
+                    const disabled =
+                      hasAlloc &&
+                      !ROLL_ACTIVE_JOB_STATUSES.includes(s) &&
+                      s !== roll.status;
+                    return (
+                      <SelectItem key={s} value={s} disabled={disabled}>
+                        {STATUS_LABELS[s] || s}
+                        {disabled ? ' (release from job first)' : ''}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowStatusEditor(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => changeStatusMutation.mutate(newStatusValue)}
+                disabled={!newStatusValue || newStatusValue === roll.status || changeStatusMutation.isPending}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Plan for Job Dialog */}
       <Dialog open={showPlanDialog} onOpenChange={setShowPlanDialog}>
         <DialogContent>
@@ -502,7 +597,7 @@ export default function RollDetail() {
                 onClick={() => planForJobMutation.mutate(selectedJobId)}
                 disabled={!selectedJobId || planForJobMutation.isPending}
               >
-                Confirm Planning
+                Confirm Plan
               </Button>
             </div>
           </div>

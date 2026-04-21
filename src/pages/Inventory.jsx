@@ -51,13 +51,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import RollSearch from '@/components/inventory/RollSearch';
 import StatusBadge from '@/components/ui/StatusBadge';
+import { ROLL_STATUS, ROLL_STATUS_OPTIONS, STATUS_LABELS } from '@/lib/rollStatus';
 
 export default function Inventory() {
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [productFilter, setProductFilter] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
+  // Initialize filters from URL so dashboard can deep-link in pre-filtered.
+  const urlParams = new URLSearchParams(window.location.search);
+  const [statusFilter, setStatusFilter] = useState(urlParams.get('status') || 'all');
+  const [typeFilter, setTypeFilter] = useState(urlParams.get('type') || 'all');
+  const [productFilter, setProductFilter] = useState(urlParams.get('product') || 'all');
+  const [searchTerm, setSearchTerm] = useState(urlParams.get('q') || '');
   const [selectedRolls, setSelectedRolls] = useState([]);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingRoll, setEditingRoll] = useState(null);
@@ -221,19 +224,14 @@ export default function Inventory() {
         
         <div className="flex flex-wrap gap-3">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[140px] dark:bg-slate-800 dark:text-white dark:border-slate-700">
+            <SelectTrigger className="w-[160px] dark:bg-slate-800 dark:text-white dark:border-slate-700">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
               <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="Available">Available</SelectItem>
-              <SelectItem value="Allocated">Allocated</SelectItem>
-              <SelectItem value="Staged">Staged</SelectItem>
-              <SelectItem value="Dispatched">Dispatched</SelectItem>
-              <SelectItem value="Consumed">Consumed</SelectItem>
-              <SelectItem value="Scrapped">Scrapped</SelectItem>
-              <SelectItem value="ReturnedHold">Returned Hold</SelectItem>
-              <SelectItem value="AwaitingLocation">Awaiting Location</SelectItem>
+              {ROLL_STATUS_OPTIONS.map(s => (
+                <SelectItem key={s} value={s}>{STATUS_LABELS[s] || s}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
@@ -370,7 +368,7 @@ export default function Inventory() {
                               <Edit className="h-4 w-4 mr-2" />
                               Edit Roll
                             </DropdownMenuItem>
-                            {roll.status === 'Available' && roll.current_length_ft > 0 && (
+                            {roll.status === ROLL_STATUS.AVAILABLE && roll.current_length_ft > 0 && (
                               <DropdownMenuItem asChild className="dark:hover:bg-slate-700">
                                 <Link to={createPageUrl(`CutRoll?roll_id=${roll.id}`)} className="flex items-center dark:text-white">
                                   <Scissors className="h-4 w-4 mr-2" />
@@ -432,13 +430,9 @@ export default function Inventory() {
               >
                 <SelectTrigger className="dark:bg-slate-800 dark:text-white dark:border-slate-700"><SelectValue placeholder="Select status" /></SelectTrigger>
                 <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
-                  <SelectItem value="Available">Available</SelectItem>
-                  <SelectItem value="Allocated">Allocated</SelectItem>
-                  <SelectItem value="Staged">Staged</SelectItem>
-                  <SelectItem value="AwaitingLocation">Awaiting Location</SelectItem>
-                  <SelectItem value="Consumed">Consumed</SelectItem>
-                  <SelectItem value="Dispatched">Dispatched</SelectItem>
-                  <SelectItem value="Scrapped">Scrapped</SelectItem>
+                  {ROLL_STATUS_OPTIONS.map(s => (
+                    <SelectItem key={s} value={s}>{STATUS_LABELS[s] || s}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
