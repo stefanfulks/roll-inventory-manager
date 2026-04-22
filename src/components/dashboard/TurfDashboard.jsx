@@ -3,11 +3,20 @@ import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import StatCard from '@/components/ui/StatCard';
-import { Package, Ruler, AlertTriangle, Clock } from 'lucide-react';
+import { Package, Ruler, AlertTriangle, Clock, DollarSign, ArrowRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import ForecastChart from '@/components/dashboard/ForecastChart';
 import { ROLL_STATUS } from '@/lib/rollStatus';
+import { useIsAdmin } from '@/lib/AuthContext';
+import {
+  longSittingRolls,
+  rollValue,
+  inventoryValue,
+  daysSinceReceived,
+  formatCurrency,
+} from '@/lib/costing';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
@@ -21,6 +30,7 @@ export default function TurfDashboard({
   visibleCharts 
 }) {
   const navigate = useNavigate();
+  const isAdmin = useIsAdmin();
   const [showLowInventoryDialog, setShowLowInventoryDialog] = useState(false);
   const [showSittingInventoryDialog, setShowSittingInventoryDialog] = useState(false);
   const [shippedTimeRange, setShippedTimeRange] = useState('all');
@@ -185,8 +195,8 @@ export default function TurfDashboard({
         </div>
 
         <div 
-          onClick={() => sittingRolls.length > 0 && setShowSittingInventoryDialog(true)}
-          className={sittingRolls.length > 0 ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}
+          onClick={() => navigate(createPageUrl('AgingReport'))}
+          className="cursor-pointer hover:opacity-80 transition-opacity"
         >
           <StatCard
             title="Sitting Inventory"
@@ -198,6 +208,111 @@ export default function TurfDashboard({
           />
         </div>
       </div>
+
+      {/* Admin-only: Inventory value */}
+      {isAdmin && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div
+            onClick={() => navigate(createPageUrl('AgingReport'))}
+            className="cursor-pointer hover:opacity-80 transition-opacity"
+          >
+            <StatCard
+              title="Inventory Value"
+              value={formatCurrency(inventoryValue(availableRolls, products))}
+              subtitle="Admin only — total cash in Available stock"
+              icon={DollarSign}
+              iconBg="bg-emerald-100"
+              iconColor="text-emerald-600"
+            />
+          </div>
+          <div
+            onClick={() => navigate(createPageUrl('AgingReport'))}
+            className="cursor-pointer hover:opacity-80 transition-opacity"
+          >
+            <StatCard
+              title="Value Sitting 90+ Days"
+              value={formatCurrency(
+                inventoryValue(
+                  availableRolls.filter(r => {
+                    const d = daysSinceReceived(r);
+                    return d != null && d >= 90;
+                  }),
+                  products,
+                ),
+              )}
+              subtitle="Admin only — aging cash"
+              icon={DollarSign}
+              iconBg="bg-orange-100"
+              iconColor="text-orange-600"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Rolls that need to move — top 10 oldest */}
+      {(() => {
+        const top = longSittingRolls(availableRolls, 30).slice(0, 10);
+        if (top.length === 0) return null;
+        return (
+          <div className="bg-white dark:bg-[#2d2d2d] rounded-2xl p-6 border border-slate-100 dark:border-slate-700/50 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800 dark:text-white">
+                  Rolls that need to move
+                </h3>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Available inventory sorted by age — oldest first.
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                onClick={() => navigate(createPageUrl('AgingReport'))}
+                className="text-slate-600"
+              >
+                Full report <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-slate-500">
+                  <tr>
+                    <th className="pb-2 font-medium">TT SKU</th>
+                    <th className="pb-2 font-medium">Product</th>
+                    <th className="pb-2 font-medium">Size</th>
+                    <th className="pb-2 font-medium">Days sitting</th>
+                    {isAdmin && <th className="pb-2 font-medium text-right">Value</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {top.map(r => (
+                    <tr
+                      key={r.id}
+                      className="hover:bg-slate-50 cursor-pointer"
+                      onClick={() => navigate(createPageUrl('RollDetail') + `?id=${r.id}`)}
+                    >
+                      <td className="py-2 font-mono">{r.tt_sku_tag_number || r.roll_tag}</td>
+                      <td className="py-2">{r.product_name}</td>
+                      <td className="py-2">
+                        {r.width_ft}ft × {r.current_length_ft}ft
+                      </td>
+                      <td className="py-2">
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-orange-100 text-orange-700">
+                          {r.__daysSitting} days
+                        </span>
+                      </td>
+                      {isAdmin && (
+                        <td className="py-2 text-right font-medium">
+                          {formatCurrency(rollValue(r, products))}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Forecast Chart */}
       <ForecastChart rolls={rolls} jobs={jobs} />

@@ -48,6 +48,8 @@ export default function Products() {
     manufacturer_name: '',
     width_options: [13, 15],
     standard_roll_length_ft: 100,
+    cost_per_sqft: '',
+    min_stock_level_ft: '',
     status: 'active',
     notes: ''
   });
@@ -96,6 +98,8 @@ export default function Products() {
         manufacturer_name: product.manufacturer_name || '',
         width_options: product.width_options || [13, 15],
         standard_roll_length_ft: product.standard_roll_length_ft || 100,
+        cost_per_sqft: product.cost_per_sqft ?? '',
+        min_stock_level_ft: product.min_stock_level_ft ?? '',
         status: product.status,
         notes: product.notes || ''
       });
@@ -107,6 +111,8 @@ export default function Products() {
         manufacturer_name: '',
         width_options: [13, 15],
         standard_roll_length_ft: 100,
+        cost_per_sqft: '',
+        min_stock_level_ft: '',
         status: 'active',
         notes: ''
       });
@@ -192,6 +198,32 @@ export default function Products() {
                   min="1"
                   value={formData.standard_roll_length_ft}
                   onChange={e => setFormData(p => ({ ...p, standard_roll_length_ft: parseInt(e.target.value) }))}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Cost per Square Foot ($)</Label>
+                <Input 
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.cost_per_sqft}
+                  onChange={e => setFormData(p => ({ ...p, cost_per_sqft: e.target.value === '' ? '' : parseFloat(e.target.value) }))}
+                  placeholder="e.g. 0.19"
+                />
+                <p className="text-xs text-slate-500">
+                  Used to calculate inventory value. Visible to admins only on the dashboard.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Minimum Stock Level (ft)</Label>
+                <Input 
+                  type="number"
+                  min="0"
+                  value={formData.min_stock_level_ft}
+                  onChange={e => setFormData(p => ({ ...p, min_stock_level_ft: e.target.value === '' ? '' : parseInt(e.target.value) }))}
+                  placeholder="Leave blank to disable low-stock alerts"
                 />
               </div>
 

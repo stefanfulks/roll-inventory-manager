@@ -22,7 +22,8 @@ import {
   FileBarChart,
   HelpCircle,
   Search,
-  Archive
+  Archive,
+  Clock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -50,6 +51,7 @@ const adminItems = [
   { name: 'Turf', page: 'Products', icon: Package },
   { name: 'Other Inventory', page: 'InventoryItems', icon: Package },
   { name: 'Locations', page: 'Locations', icon: MapPin },
+  { name: 'Aging Report', page: 'AgingReport', icon: Clock },
   { name: 'Transactions', page: 'Transactions', icon: FileSpreadsheet },
   { name: 'Turf Overage', page: 'TurfOverageReport', icon: FileBarChart },
   { name: 'Archived Jobs', page: 'ArchivedJobs', icon: Archive },

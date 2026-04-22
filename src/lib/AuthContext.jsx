@@ -152,3 +152,12 @@ export const useAuth = () => {
   }
   return context;
 };
+
+/**
+ * Convenience: true when the current user has role === 'admin'.
+ * Used to gate cost/value views.
+ */
+export const useIsAdmin = () => {
+  const { user } = useAuth();
+  return user?.role === 'admin';
+};
