@@ -22,9 +22,11 @@ export const ROLL_STATUS = Object.freeze({
   STAGED: 'Staged',             // physically staged for dispatch
   DISPATCHED: 'Dispatched',     // shipped to job site
   CONSUMED: 'Consumed',         // fully used up
-  RETURNED_HOLD: 'ReturnedHold',// returned damaged, pending review
+  RETURNED_HOLD: 'ReturnedHold',// returned damaged, legacy — prefer PendingScrap
   AWAITING_LOCATION: 'AwaitingLocation', // received but not yet shelved
   SCRAPPED: 'Scrapped',         // written off
+  PENDING_AVAILABLE: 'PendingAvailable', // returned, pending review → will become Available
+  PENDING_SCRAP: 'PendingScrap',         // returned, pending review → will become Scrapped
 });
 
 // Allocation statuses — lifecycle states of an allocation record
@@ -45,6 +47,8 @@ export const ROLL_STATUS_OPTIONS = [
   ROLL_STATUS.STAGED,
   ROLL_STATUS.DISPATCHED,
   ROLL_STATUS.AWAITING_LOCATION,
+  ROLL_STATUS.PENDING_AVAILABLE,
+  ROLL_STATUS.PENDING_SCRAP,
   ROLL_STATUS.RETURNED_HOLD,
   ROLL_STATUS.CONSUMED,
   ROLL_STATUS.SCRAPPED,
@@ -69,6 +73,8 @@ export const STATUS_LABELS = Object.freeze({
   [ROLL_STATUS.RETURNED_HOLD]: 'Returned Hold',
   [ROLL_STATUS.AWAITING_LOCATION]: 'Awaiting Location',
   [ROLL_STATUS.SCRAPPED]: 'Scrapped',
+  [ROLL_STATUS.PENDING_AVAILABLE]: 'Pending (→ Available)',
+  [ROLL_STATUS.PENDING_SCRAP]: 'Pending (→ Scrap)',
   [ALLOCATION_STATUS.CANCELLED]: 'Cancelled',
   [ALLOCATION_STATUS.COMPLETED]: 'Completed',
 });
@@ -81,11 +87,19 @@ export const ROLL_ACTIVE_JOB_STATUSES = [
   ROLL_STATUS.DISPATCHED,
 ];
 
+// Statuses that represent a return awaiting review.
+export const ROLL_PENDING_STATUSES = [
+  ROLL_STATUS.PENDING_AVAILABLE,
+  ROLL_STATUS.PENDING_SCRAP,
+];
+
 // Statuses a user can pick freely from the RollDetail status dropdown.
 // (Allocation-bound statuses are excluded — those flow from allocations.)
 export const MANUAL_ROLL_STATUS_OPTIONS = [
   ROLL_STATUS.AVAILABLE,
   ROLL_STATUS.AWAITING_LOCATION,
+  ROLL_STATUS.PENDING_AVAILABLE,
+  ROLL_STATUS.PENDING_SCRAP,
   ROLL_STATUS.RETURNED_HOLD,
   ROLL_STATUS.CONSUMED,
   ROLL_STATUS.SCRAPPED,

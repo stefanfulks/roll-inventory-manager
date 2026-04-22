@@ -43,6 +43,7 @@ const navItems = [
   { name: 'Cut Roll', page: 'CutRoll', icon: Scissors },
   { name: 'Jobs', page: 'Jobs', icon: ClipboardList },
   { name: 'Returns', page: 'Returns', icon: RotateCcw },
+  { name: 'Pending Returns', page: 'PendingReturns', icon: ClipboardList },
 ];
 
 const adminItems = [

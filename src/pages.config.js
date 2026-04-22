@@ -57,6 +57,7 @@ import JobDetail from './pages/JobDetail';
 import Jobs from './pages/Jobs';
 import Locations from './pages/Locations';
 import PendingInventory from './pages/PendingInventory';
+import PendingReturns from './pages/PendingReturns';
 import Products from './pages/Products';
 import Receive from './pages/Receive';
 import Reports from './pages/Reports';
@@ -79,6 +80,7 @@ export const PAGES = {
     "Jobs": Jobs,
     "Locations": Locations,
     "PendingInventory": PendingInventory,
+    "PendingReturns": PendingReturns,
     "Products": Products,
     "Receive": Receive,
     "Reports": Reports,

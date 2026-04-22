@@ -13,6 +13,8 @@ const statusStyles = {
   Scrapped: "bg-red-100 text-red-700",
   ReturnedHold: "bg-orange-100 text-orange-700",
   AwaitingLocation: "bg-red-100 text-red-700",
+  PendingAvailable: "bg-amber-100 text-amber-800 border border-amber-300",
+  PendingScrap: "bg-rose-100 text-rose-800 border border-rose-300",
 
   // Job statuses
   Draft: "bg-slate-100 text-slate-600",

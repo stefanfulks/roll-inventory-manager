@@ -1027,6 +1027,7 @@ export default function JobDetail() {
               <TableRow className="bg-slate-50">
                 <TableHead>Type</TableHead>
                 <TableHead>Item</TableHead>
+                <TableHead>Roll #</TableHead>
                 <TableHead>Details</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
@@ -1035,7 +1036,7 @@ export default function JobDetail() {
             <TableBody>
               {allocations.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-slate-500">
+                  <TableCell colSpan={6} className="text-center py-8 text-slate-500">
                     No allocations yet
                   </TableCell>
                 </TableRow>
@@ -1075,6 +1076,27 @@ export default function JobDetail() {
                      ) : (
                        allocation.product_name
                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-slate-600">
+                      {allocation.item_type === 'roll' && allocation.allocated_roll_ids?.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {allocation.allocated_roll_ids.map(rid => {
+                            const r = allRolls.find(x => x.id === rid);
+                            const tag = r?.tt_sku_tag_number || r?.roll_tag || rid.slice(0, 6);
+                            return (
+                              <Link
+                                key={rid}
+                                to={createPageUrl('RollDetail') + `?id=${rid}`}
+                                className="bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded"
+                              >
+                                {tag}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-slate-600">
                       {allocation.item_type === 'roll' ? (
