@@ -387,7 +387,7 @@ export default function Jobs() {
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="Draft">Draft</SelectItem>
             <SelectItem value="Ready">Ready</SelectItem>
-            <SelectItem value="Dispatched">Dispatched</SelectItem>
+            <SelectItem value="Dispatched">Fulfilled</SelectItem>
             <SelectItem value="AwaitingReturnInventory">Awaiting Return</SelectItem>
             <SelectItem value="Completed">Completed</SelectItem>
             <SelectItem value="Archived">Archived</SelectItem>
@@ -573,7 +573,7 @@ export default function Jobs() {
                 <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
                   <SelectItem value="Draft">Draft</SelectItem>
                   <SelectItem value="Ready">Ready</SelectItem>
-                  <SelectItem value="Dispatched">Dispatched</SelectItem>
+                  <SelectItem value="Dispatched">Fulfilled</SelectItem>
                   <SelectItem value="AwaitingReturnInventory">Awaiting Return Inventory</SelectItem>
                   <SelectItem value="Completed">Completed</SelectItem>
                 </SelectContent>

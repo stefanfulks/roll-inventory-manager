@@ -440,7 +440,7 @@ export default function JobDetail() {
                 length_before_ft: roll.current_length_ft,
                 length_after_ft: 0,
                 performed_by: user.full_name || user.email,
-                notes: `Dispatched to job ${job.job_number}`
+                notes: `Fulfilled to job ${job.job_number}`
               });
             }
           }
@@ -460,7 +460,7 @@ export default function JobDetail() {
               job_number: job.job_number,
               product_name: inventoryItem.item_name,
               performed_by: user.full_name || user.email,
-              notes: `Dispatched ${allocation.requested_quantity || 1} ${inventoryItem.unit_of_measure} to job ${job.job_number}`
+              notes: `Fulfilled ${allocation.requested_quantity || 1} ${inventoryItem.unit_of_measure} to job ${job.job_number}`
             });
           }
         }
@@ -614,7 +614,7 @@ export default function JobDetail() {
               className="bg-blue-600 hover:bg-blue-700"
             >
               <Send className="h-4 w-4 mr-2" />
-              Dispatch Job
+              Mark as Fulfilled
             </Button>
           )}
           {job.status === 'Dispatched' && job.fulfillment_for === 'TexasTurf' && (
@@ -951,7 +951,7 @@ export default function JobDetail() {
                                    <div className="flex items-center gap-2">
                                      <Package className="h-4 w-4 text-emerald-600" />
                                      <span className="font-mono font-medium">{item.tt_sku_tag_number}</span>
-                                     <StatusBadge status={item.roll_type} size="sm" />
+                                     <StatusBadge status={item.roll_type || 'Parent'} size="sm" />
                                    </div>
                                    <p className="text-sm font-medium text-slate-800 mt-1">
                                      {item.product_name}

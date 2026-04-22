@@ -101,6 +101,9 @@ export default function RollDetail() {
     mutationFn: async (jobId) => {
       const user = await base44.auth.me();
       const job = jobs.find(j => j.id === jobId);
+      if (!job) {
+        throw new Error(`Job ${jobId} not found in the loaded jobs list. Try refreshing the page.`);
+      }
 
       // createAllocationWithSync also updates roll.status to Planned.
       await createAllocationWithSync({
@@ -138,12 +141,19 @@ export default function RollDetail() {
       setSelectedJobId('');
       toast.success('Roll planned for job');
     },
+    onError: (err) => {
+      console.error('planForJobMutation failed:', err);
+      toast.error(`Plan failed: ${err?.message || 'Unknown error'}`);
+    },
   });
 
   const allocateForJobMutation = useMutation({
     mutationFn: async (jobId) => {
       const user = await base44.auth.me();
       const job = jobs.find(j => j.id === jobId);
+      if (!job) {
+        throw new Error(`Job ${jobId} not found in the loaded jobs list. Try refreshing the page.`);
+      }
 
       await createAllocationWithSync({
         job_id: jobId,
@@ -179,6 +189,10 @@ export default function RollDetail() {
       setShowAllocateDialog(false);
       setSelectedJobId('');
       toast.success('Roll allocated for job');
+    },
+    onError: (err) => {
+      console.error('allocateForJobMutation failed:', err);
+      toast.error(`Allocate failed: ${err?.message || 'Unknown error'}`);
     },
   });
 
@@ -239,7 +253,7 @@ export default function RollDetail() {
               <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 font-mono">
                 {roll.tt_sku_tag_number || roll.roll_tag}
               </h1>
-              <StatusBadge status={roll.roll_type} />
+              <StatusBadge status={roll.roll_type || 'Parent'} />
               <StatusBadge status={roll.status} />
             </div>
             <p className="text-slate-500 mt-1">{roll.product_name} • {roll.dye_lot}</p>
@@ -520,7 +534,7 @@ export default function RollDetail() {
           <div className="space-y-4">
             {findActiveAllocationForRoll(roll.id, allAllocations) && (
               <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
-                This roll is allocated to a job. Changing to a job-state status (Planned / Allocated / Staged / Dispatched) will update the associated allocation. To release the roll, cancel or delete the allocation from the job page.
+                This roll is allocated to a job. Changing to a job-state status (Planned / Allocated / Staged / Fulfilled) will update the associated allocation. To release the roll, cancel or delete the allocation from the job page.
               </div>
             )}
             <div>

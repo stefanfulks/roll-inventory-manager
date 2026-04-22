@@ -345,7 +345,7 @@ export default function Inventory() {
                         <span className="font-medium">{roll.current_length_ft}</span>
                         <span className="text-slate-400 dark:text-slate-500">/{roll.original_length_ft}ft</span>
                       </TableCell>
-                      <TableCell><StatusBadge status={roll.roll_type} size="sm" /></TableCell>
+                      <TableCell><StatusBadge status={roll.roll_type || 'Parent'} size="sm" /></TableCell>
                       <TableCell><StatusBadge status={roll.status} size="sm" /></TableCell>
                       <TableCell className="text-slate-600 dark:text-slate-300">
                         {roll.location_bin && roll.location_row ? `${roll.location_bin}-${roll.location_row}` : '-'}
