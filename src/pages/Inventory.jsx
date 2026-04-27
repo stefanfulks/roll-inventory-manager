@@ -348,7 +348,7 @@ export default function Inventory() {
                       <TableCell><StatusBadge status={roll.roll_type || 'Parent'} size="sm" /></TableCell>
                       <TableCell><StatusBadge status={roll.status} size="sm" /></TableCell>
                       <TableCell className="text-slate-600 dark:text-slate-300">
-                        {roll.location_bin && roll.location_row ? `${roll.location_bin}-${roll.location_row}` : '-'}
+                        {roll.location_name || '-'}
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
