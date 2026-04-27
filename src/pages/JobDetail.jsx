@@ -555,11 +555,11 @@ export default function JobDetail() {
 
   // Calculate metrics for turf only
   const turfAllocations = allocations.filter(a => a.item_type === 'roll');
-  // "Allocated (Sent Out)" = anything the warehouse has committed or further along.
-  // Includes Allocated, Staged, and Dispatched. Planned is forecast-only and excluded.
-  const COMMITTED_STATUSES = ['Allocated', 'Staged', 'Dispatched'];
+  // "Allocated" = anything from Planned phase onward (excluding Cancelled/Completed).
+  // Reflects all rolls assigned to the job regardless of fulfillment progress.
+  const ALLOCATED_STATUSES = ['Planned', 'Allocated', 'Staged', 'Dispatched'];
   const totalAllocatedSentOut = turfAllocations
-    .filter(a => COMMITTED_STATUSES.includes(a.status))
+    .filter(a => ALLOCATED_STATUSES.includes(a.status))
     .reduce((sum, a) => sum + (a.requested_length_ft || 0), 0);
   
   const totalReturned = returnTransactions.reduce((sum, t) => sum + (t.length_change_ft || 0), 0);
@@ -722,13 +722,13 @@ export default function JobDetail() {
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div className="p-4 bg-slate-50 rounded-lg">
-                <p className="text-sm text-slate-500 mb-1">Requested (Job Form)</p>
+                <p className="text-sm text-slate-500 mb-1">Requested (LF)</p>
                 <p className="text-2xl font-bold text-slate-800">
                   {job.requested_total_turf_length_ft || 0} ft
                 </p>
               </div>
               <div className="p-4 bg-blue-50 rounded-lg">
-                <p className="text-sm text-slate-500 mb-1">Allocated (Sent Out)</p>
+                <p className="text-sm text-slate-500 mb-1">Allocated</p>
                 <p className="text-2xl font-bold text-blue-600">{totalAllocatedSentOut} ft</p>
               </div>
               <div className="p-4 bg-amber-50 rounded-lg">
@@ -1318,6 +1318,82 @@ export default function JobDetail() {
                             
                             {returnItem && (
                               <div className="mt-3 space-y-3 p-3 bg-slate-50 rounded-lg">
+                                {/* 1. Condition first */}
+                                <div>
+                                 <Label className="text-xs font-semibold">Condition *</Label>
+                                 <Select
+                                   value={returnItem.condition}
+                                   onValueChange={(v) => {
+                                     setReturnItems(prev => prev.map(r => 
+                                       r.id === rollId 
+                                         ? { 
+                                             ...r, 
+                                             condition: v,
+                                             // Scrapped never needs a new tag
+                                             has_existing_tag: v === 'Scrapped' ? 'existing' : r.has_existing_tag,
+                                             new_tt_sku: v === 'Scrapped' ? '' : r.new_tt_sku,
+                                           }
+                                         : r
+                                     ));
+                                   }}
+                                 >
+                                   <SelectTrigger className="mt-1">
+                                     <SelectValue />
+                                   </SelectTrigger>
+                                   <SelectContent>
+                                     <SelectItem value="New">New - Add back to inventory</SelectItem>
+                                     <SelectItem value="Damaged">Damaged - Hold for review</SelectItem>
+                                     <SelectItem value="Scrapped">Scrapped - Do not add to inventory</SelectItem>
+                                   </SelectContent>
+                                 </Select>
+                                </div>
+
+                                {/* 2. Tag question — only for New / Damaged */}
+                                {returnItem.condition !== 'Scrapped' && (
+                                  <>
+                                    <div>
+                                     <Label className="text-xs font-semibold">Does this roll have a tag?</Label>
+                                     <Select
+                                       value={returnItem.has_existing_tag}
+                                       onValueChange={(v) => {
+                                         setReturnItems(prev => prev.map(r => 
+                                           r.id === rollId 
+                                             ? { ...r, has_existing_tag: v }
+                                             : r
+                                         ));
+                                       }}
+                                     >
+                                       <SelectTrigger className="mt-1">
+                                         <SelectValue />
+                                       </SelectTrigger>
+                                       <SelectContent>
+                                         <SelectItem value="existing">Yes - Use existing tag</SelectItem>
+                                         <SelectItem value="new">No - Assign new TT SKU tag</SelectItem>
+                                       </SelectContent>
+                                     </Select>
+                                    </div>
+
+                                    {returnItem.has_existing_tag === 'new' && (
+                                     <div>
+                                       <Label className="text-xs font-semibold">New TT SKU Tag Number</Label>
+                                       <Input
+                                         value={returnItem.new_tt_sku}
+                                         onChange={(e) => {
+                                           setReturnItems(prev => prev.map(r => 
+                                             r.id === rollId 
+                                               ? { ...r, new_tt_sku: e.target.value }
+                                               : r
+                                           ));
+                                         }}
+                                         placeholder="Enter new tag number"
+                                         className="mt-1 font-mono"
+                                       />
+                                     </div>
+                                    )}
+                                  </>
+                                )}
+
+                                {/* 3. Dimensions — returned length always, scrapped width only when Scrapped */}
                                 <div>
                                   <Label className="text-xs font-semibold">Returned Length (ft) *</Label>
                                   <Input
@@ -1335,69 +1411,6 @@ export default function JobDetail() {
                                     placeholder="0"
                                     className="mt-1"
                                   />
-                                </div>
-                                
-                                <div>
-                                 <Label className="text-xs font-semibold">Does this roll have a tag?</Label>
-                                 <Select
-                                   value={returnItem.has_existing_tag}
-                                   onValueChange={(v) => {
-                                     setReturnItems(prev => prev.map(r => 
-                                       r.id === rollId 
-                                         ? { ...r, has_existing_tag: v }
-                                         : r
-                                     ));
-                                   }}
-                                 >
-                                   <SelectTrigger className="mt-1">
-                                     <SelectValue />
-                                   </SelectTrigger>
-                                   <SelectContent>
-                                     <SelectItem value="existing">Yes - Use existing tag</SelectItem>
-                                     <SelectItem value="new">No - Assign new TT SKU tag</SelectItem>
-                                   </SelectContent>
-                                 </Select>
-                                </div>
-                                
-                                {returnItem.has_existing_tag === 'new' && (
-                                 <div>
-                                   <Label className="text-xs font-semibold">New TT SKU Tag Number</Label>
-                                   <Input
-                                     value={returnItem.new_tt_sku}
-                                     onChange={(e) => {
-                                       setReturnItems(prev => prev.map(r => 
-                                         r.id === rollId 
-                                           ? { ...r, new_tt_sku: e.target.value }
-                                           : r
-                                       ));
-                                     }}
-                                     placeholder="Enter new tag number"
-                                     className="mt-1 font-mono"
-                                   />
-                                 </div>
-                                )}
-                                
-                                <div>
-                                 <Label className="text-xs font-semibold">Condition</Label>
-                                 <Select
-                                   value={returnItem.condition}
-                                   onValueChange={(v) => {
-                                     setReturnItems(prev => prev.map(r => 
-                                       r.id === rollId 
-                                         ? { ...r, condition: v }
-                                         : r
-                                     ));
-                                   }}
-                                 >
-                                   <SelectTrigger className="mt-1">
-                                     <SelectValue />
-                                   </SelectTrigger>
-                                   <SelectContent>
-                                     <SelectItem value="New">New - Add back to inventory</SelectItem>
-                                     <SelectItem value="Damaged">Damaged - Hold for review</SelectItem>
-                                     <SelectItem value="Scrapped">Scrapped - Do not add to inventory</SelectItem>
-                                   </SelectContent>
-                                 </Select>
                                 </div>
 
                                 {returnItem.condition === 'Scrapped' && (

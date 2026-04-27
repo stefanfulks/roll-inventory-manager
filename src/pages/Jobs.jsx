@@ -304,7 +304,7 @@ export default function Jobs() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="dark:text-slate-300">Total Requested Turf (ft)</Label>
+                  <Label className="dark:text-slate-300">Total Requested (LF)</Label>
                   <Input 
                     type="number"
                     value={newJob.requested_total_turf_length_ft}

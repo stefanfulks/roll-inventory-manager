@@ -2,6 +2,13 @@ import React from 'react';
 import { cn } from "@/lib/utils";
 import { STATUS_LABELS } from '@/lib/rollStatus';
 
+// Old DB values → current canonical statuses (for label + styling).
+const LEGACY_STATUS_ALIAS = {
+  TempHold: 'Planned',
+  Reserved: 'Planned',
+  Holding: 'Planned',
+};
+
 const statusStyles = {
   // Roll statuses (canonical, per SOP)
   Available: "bg-emerald-100 text-emerald-700",
@@ -45,13 +52,15 @@ const statusStyles = {
 };
 
 export default function StatusBadge({ status, size = "default" }) {
-  const label = STATUS_LABELS[status] || status || '—';
+  // Map legacy values to canonical (e.g., TempHold → Planned)
+  const canonical = LEGACY_STATUS_ALIAS[status] || status;
+  const label = STATUS_LABELS[canonical] || canonical || '—';
 
   return (
     <span className={cn(
       "inline-flex items-center font-medium rounded-full",
       size === "sm" ? "px-2 py-0.5 text-xs" : "px-3 py-1 text-sm",
-      statusStyles[status] || "bg-slate-100 text-slate-600"
+      statusStyles[canonical] || "bg-slate-100 text-slate-600"
     )}>
       {label}
     </span>
