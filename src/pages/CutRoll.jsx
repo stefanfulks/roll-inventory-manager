@@ -53,6 +53,24 @@ export default function CutRoll() {
   const [cutLength, setCutLength] = useState('');
   const [destination, setDestination] = useState('inventory');
   const [selectedJobId, setSelectedJobId] = useState('');
+  const [selectedLocationId, setSelectedLocationId] = useState('');
+
+  // Parse "feet-inches" input like "10-6" → 10.5 ft
+  const parseFeetInches = (input) => {
+    const str = String(input).trim();
+    const dashMatch = str.match(/^(\d+)-(\d+)$/);
+    if (dashMatch) {
+      const feet = parseInt(dashMatch[1], 10);
+      const inches = parseInt(dashMatch[2], 10);
+      if (inches < 0 || inches > 11) return null;
+      return feet + inches / 12;
+    }
+    const num = parseFloat(str);
+    return isNaN(num) ? null : num;
+  };
+
+  const cutLengthNum = parseFeetInches(cutLength);
+  const cutLengthDisplay = cutLength ? (cutLengthNum !== null ? `${cutLengthNum.toFixed(4)} ft` : 'Invalid') : '';
   const [newTTSku, setNewTTSku] = useState('');
   const [isCutting, setIsCutting] = useState(false);
   const [createdChild, setCreatedChild] = useState(null);
@@ -64,6 +82,11 @@ export default function CutRoll() {
       '-created_date',
       500
     ),
+  });
+
+  const { data: locations = [] } = useQuery({
+    queryKey: ['locations'],
+    queryFn: () => base44.entities.Location.list(),
   });
 
   const { data: jobs = [] } = useQuery({
@@ -103,9 +126,8 @@ export default function CutRoll() {
       return;
     }
 
-    const cutLengthNum = parseFloat(cutLength);
     if (!cutLengthNum || cutLengthNum <= 0) {
-      toast.error('Please enter a valid cut length');
+      toast.error('Please enter a valid cut length (e.g. 10 or 10-6 for 10ft 6in)');
       return;
     }
 
@@ -123,10 +145,26 @@ export default function CutRoll() {
 
     const childTag = generateRollTag();
     const childSku = generateCustomSku(selectedRoll.inventory_owner, selectedRoll.product_name);
-    const newParentLength = selectedRoll.current_length_ft - cutLengthNum;
+    const newParentLength = parseFloat((selectedRoll.current_length_ft - cutLengthNum).toFixed(4));
 
     // Determine TT SKU # based on destination
     const ttSkuNumber = destination === 'inventory' ? newTTSku : childTag;
+
+    // Resolve location for special destinations
+    const specialDestinationMap = {
+      repairs: 'Repairs',
+      samples: 'Samples',
+      non_job: 'Non-Job Tasks',
+    };
+    let childLocationId = selectedRoll.location_id;
+    let childLocationName = selectedRoll.location_name;
+    if (specialDestinationMap[destination]) {
+      const loc = locations.find(l => l.name === specialDestinationMap[destination]);
+      if (loc) { childLocationId = loc.id; childLocationName = loc.name; }
+    } else if (destination === 'inventory' && selectedLocationId) {
+      const loc = locations.find(l => l.id === selectedLocationId);
+      if (loc) { childLocationId = loc.id; childLocationName = loc.name; }
+    }
 
     // Create child roll
     const childData = {
@@ -143,8 +181,8 @@ export default function CutRoll() {
       roll_type: 'Child',
       parent_roll_id: selectedRoll.id,
       condition: selectedRoll.condition,
-      location_id: selectedRoll.location_id,
-      location_name: selectedRoll.location_name,
+      location_id: childLocationId,
+      location_name: childLocationName,
       status: destination === 'job' && selectedJobId ? 'Staged' : 'Available',
       date_received: new Date().toISOString().split('T')[0],
     };
@@ -288,52 +326,79 @@ export default function CutRoll() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Cut Length (ft) *</Label>
+              <Label>Cut Length *</Label>
               <Input
-                type="number"
-                min="1"
-                max={selectedRoll?.current_length_ft || 100}
+                type="text"
                 value={cutLength}
                 onChange={(e) => setCutLength(e.target.value)}
-                placeholder="Enter length to cut"
-                className="text-lg h-12"
+                placeholder="e.g. 10 or 10-6 (10ft 6in)"
+                className="text-lg h-12 font-mono"
               />
-              {selectedRoll && parseFloat(cutLength) > selectedRoll.current_length_ft && (
+              <p className="text-xs text-slate-400">Format: feet (e.g. <strong>10</strong>) or feet-inches (e.g. <strong>10-6</strong> = 10ft 6in)</p>
+              {cutLength && cutLengthNum === null && (
+                <p className="text-sm text-red-500 flex items-center gap-1">
+                  <AlertTriangle className="h-4 w-4" />
+                  Invalid format. Use "10" or "10-6" (0–11 inches)
+                </p>
+              )}
+              {selectedRoll && cutLengthNum !== null && cutLengthNum > selectedRoll.current_length_ft && (
                 <p className="text-sm text-red-500 flex items-center gap-1">
                   <AlertTriangle className="h-4 w-4" />
                   Cannot exceed {selectedRoll.current_length_ft}ft
                 </p>
               )}
-              {selectedRoll && cutLength && parseFloat(cutLength) <= selectedRoll.current_length_ft && (
-                <p className="text-sm text-slate-500">
-                  Parent will have {selectedRoll.current_length_ft - parseFloat(cutLength)}ft remaining
+              {selectedRoll && cutLengthNum !== null && cutLengthNum > 0 && cutLengthNum <= selectedRoll.current_length_ft && (
+                <p className="text-sm text-emerald-600 font-medium">
+                  = {cutLengthNum.toFixed(4)}ft → parent will have {(selectedRoll.current_length_ft - cutLengthNum).toFixed(4)}ft remaining
                 </p>
               )}
             </div>
 
             <div className="space-y-2">
               <Label>Destination</Label>
-              <Select value={destination} onValueChange={setDestination}>
+              <Select value={destination} onValueChange={(v) => { setDestination(v); setSelectedJobId(''); setSelectedLocationId(''); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="inventory">Save to Inventory</SelectItem>
                   <SelectItem value="job">Add to Job</SelectItem>
+                  <SelectItem value="repairs">Use for Repairs</SelectItem>
+                  <SelectItem value="samples">Use for Samples</SelectItem>
+                  <SelectItem value="non_job">Use for Non-Job Tasks</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {destination === 'inventory' && (
-              <div className="space-y-2">
-                <Label>New TT SKU # *</Label>
-                <Input
-                  value={newTTSku}
-                  onChange={(e) => setNewTTSku(e.target.value)}
-                  placeholder="Enter TT SKU # for new roll"
-                  className="font-mono"
-                />
-                <p className="text-xs text-slate-500">Enter the pre-printed TT SKU tag number</p>
+              <>
+                <div className="space-y-2">
+                  <Label>New TT SKU # *</Label>
+                  <Input
+                    value={newTTSku}
+                    onChange={(e) => setNewTTSku(e.target.value)}
+                    placeholder="Enter TT SKU # for new roll"
+                    className="font-mono"
+                  />
+                  <p className="text-xs text-slate-500">Enter the pre-printed TT SKU tag number</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Location</Label>
+                  <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                    <SelectTrigger><SelectValue placeholder="Keep parent location" /></SelectTrigger>
+                    <SelectContent>
+                      {locations.map(l => (
+                        <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
+            {(destination === 'repairs' || destination === 'samples' || destination === 'non_job') && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                This roll will be sent to the <strong>{destination === 'repairs' ? 'Repairs' : destination === 'samples' ? 'Samples' : 'Non-Job Tasks'}</strong> location and marked Available there.
               </div>
             )}
 
@@ -359,9 +424,11 @@ export default function CutRoll() {
               onClick={handleCut}
               disabled={
                 !selectedRoll || 
-                !cutLength || 
+                !cutLength ||
+                cutLengthNum === null ||
+                cutLengthNum <= 0 ||
                 isCutting || 
-                parseFloat(cutLength) > selectedRoll?.current_length_ft ||
+                cutLengthNum > (selectedRoll?.current_length_ft || 0) ||
                 (destination === 'inventory' && !newTTSku)
               }
               className="w-full h-12 bg-emerald-600 hover:bg-emerald-700"

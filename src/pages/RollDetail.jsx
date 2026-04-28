@@ -13,7 +13,8 @@ import {
   Ruler,
   FileText,
   Clock,
-  Briefcase
+  Briefcase,
+  RotateCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -69,6 +70,41 @@ export default function RollDetail() {
     queryKey: ['transactions', rollId],
     queryFn: () => base44.entities.Transaction.filter({ roll_id: rollId }, '-created_date', 50),
     enabled: !!rollId,
+  });
+
+  const mostRecentTxId = transactions[0]?.id;
+
+  const undoTransactionMutation = useMutation({
+    mutationFn: async (tx) => {
+      if (tx.length_before_ft == null) throw new Error('No previous length recorded for this transaction');
+      await base44.entities.Roll.update(rollId, {
+        current_length_ft: tx.length_before_ft,
+        status: 'Available',
+      });
+      await base44.entities.Transaction.update(tx.id, {
+        notes: `[REVERSED] ${tx.notes || ''}`,
+        transaction_type: 'Reversed_' + tx.transaction_type,
+      });
+      await base44.entities.Transaction.create({
+        transaction_type: 'Reversal',
+        roll_id: rollId,
+        tt_sku_tag_number: tx.tt_sku_tag_number || roll?.tt_sku_tag_number,
+        product_name: tx.product_name,
+        dye_lot: tx.dye_lot,
+        width_ft: tx.width_ft,
+        length_change_ft: (tx.length_before_ft || 0) - (tx.length_after_ft || 0),
+        length_before_ft: tx.length_after_ft,
+        length_after_ft: tx.length_before_ft,
+        notes: `Reversed: ${tx.transaction_type}`,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roll', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['transactions', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      toast.success('Transaction reversed');
+    },
+    onError: (err) => toast.error(err.message || 'Failed to reverse transaction'),
   });
 
   const { data: childRolls = [] } = useQuery({
@@ -495,29 +531,53 @@ export default function RollDetail() {
                 <p className="text-slate-500 text-sm">No transactions yet</p>
               ) : (
                 <div className="space-y-4">
-                  {transactions.map((tx) => (
-                    <div key={tx.id} className="flex gap-3">
-                      <div className="w-2 h-2 bg-emerald-500 rounded-full mt-2 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm text-slate-800">{tx.transaction_type}</p>
-                        {tx.length_change_ft !== 0 && (
-                          <p className="text-sm text-slate-500">
-                            {tx.length_before_ft}ft → {tx.length_after_ft}ft
-                            <span className={tx.length_change_ft < 0 ? 'text-red-500' : 'text-emerald-500'}>
-                              {' '}({tx.length_change_ft > 0 ? '+' : ''}{tx.length_change_ft}ft)
-                            </span>
+                  {transactions.map((tx) => {
+                    const canUndo = tx.id === mostRecentTxId &&
+                      tx.length_before_ft != null &&
+                      !tx.transaction_type?.startsWith('Reversed_') &&
+                      tx.transaction_type !== 'Reversal';
+                    return (
+                      <div key={tx.id} className={`flex gap-3 ${tx.transaction_type?.startsWith('Reversed_') || tx.transaction_type === 'Reversal' ? 'opacity-50' : ''}`}>
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full mt-2 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-medium text-sm text-slate-800">{tx.transaction_type}</p>
+                            {canUndo && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50 text-xs"
+                                onClick={() => {
+                                  if (confirm('Undo this transaction? The roll will be restored to its previous length.')) {
+                                    undoTransactionMutation.mutate(tx);
+                                  }
+                                }}
+                                disabled={undoTransactionMutation.isPending}
+                              >
+                                <RotateCcw className="h-3 w-3 mr-1" />
+                                Undo
+                              </Button>
+                            )}
+                          </div>
+                          {tx.length_change_ft !== 0 && (
+                            <p className="text-sm text-slate-500">
+                              {tx.length_before_ft}ft → {tx.length_after_ft}ft
+                              <span className={tx.length_change_ft < 0 ? 'text-red-500' : 'text-emerald-500'}>
+                                {' '}({tx.length_change_ft > 0 ? '+' : ''}{tx.length_change_ft}ft)
+                              </span>
+                            </p>
+                          )}
+                          {tx.notes && (
+                            <p className="text-xs text-slate-400 truncate">{tx.notes}</p>
+                          )}
+                          <p className="text-xs text-slate-400 mt-1">
+                            {format(new Date(tx.created_date), 'MMM d, h:mm a')}
+                            {tx.performed_by && ` • ${tx.performed_by}`}
                           </p>
-                        )}
-                        {tx.notes && (
-                          <p className="text-xs text-slate-400 truncate">{tx.notes}</p>
-                        )}
-                        <p className="text-xs text-slate-400 mt-1">
-                          {format(new Date(tx.created_date), 'MMM d, h:mm a')}
-                          {tx.performed_by && ` • ${tx.performed_by}`}
-                        </p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
