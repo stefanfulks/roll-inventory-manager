@@ -53,6 +53,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import OwnerBadge from '@/components/ui/OwnerBadge';
 import OwnerFilter from '@/components/inventory/OwnerFilter';
 import { format } from 'date-fns';
+import { parseLocalDate } from '@/lib/dateHelpers';
 
 export default function Jobs() {
   const queryClient = useQueryClient();
@@ -465,7 +466,7 @@ export default function Jobs() {
                       <TableCell className="text-slate-600 dark:text-slate-300">{job.customer_name || '-'}</TableCell>
                       <TableCell><StatusBadge status={job.status} size="sm" /></TableCell>
                       <TableCell className="text-slate-500 dark:text-slate-400">
-                        {job.scheduled_date ? format(new Date(job.scheduled_date), 'MMM d, yyyy') : '-'}
+                        {job.scheduled_date ? format(parseLocalDate(job.scheduled_date), 'MMM d, yyyy') : '-'}
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>

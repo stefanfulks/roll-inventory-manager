@@ -48,6 +48,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import OwnerBadge from '@/components/ui/OwnerBadge';
 import SwapRollDialog from '@/components/job/SwapRollDialog';
 import { format } from 'date-fns';
+import { parseLocalDate } from '@/lib/dateHelpers';
 import {
   ROLL_STATUS,
   ALLOCATION_STATUS,
@@ -477,8 +478,8 @@ export default function JobDetail() {
       toast.success('Job dispatched successfully');
     },
     onError: (error) => {
-      toast.error('Failed to send out job');
-      console.error(error);
+      console.error('[Dispatch] failed:', error);
+      toast.error(`Failed to mark as fulfilled: ${error?.message || 'unknown error'}`);
     }
   });
 
@@ -701,7 +702,7 @@ export default function JobDetail() {
                   Scheduled
                 </p>
                 <p className="font-medium text-slate-800">
-                  {format(new Date(job.scheduled_date), 'MMMM d, yyyy')}
+                  {format(parseLocalDate(job.scheduled_date), 'MMMM d, yyyy')}
                 </p>
               </div>
             )}
@@ -1308,12 +1309,21 @@ export default function JobDetail() {
                             className="mt-1"
                           />
                           <div className="flex-1">
-                            <p className="font-medium">{roll.tt_sku_tag_number || roll.roll_tag || 'No tag'}</p>
+                            <p className="font-medium">
+                              {roll.tt_sku_tag_number || roll.roll_tag || 'No tag'}
+                              {(!roll.tt_sku_tag_number || roll.tt_sku_tag_number === 'na') && (
+                                <span className="ml-2 text-xs font-normal text-amber-600">(no tag — please assign one)</span>
+                              )}
+                            </p>
                             <p className="text-sm text-slate-600">
                               {roll.product_name} • {roll.width_ft}ft × {roll.current_length_ft}ft • Dye Lot: {roll.dye_lot}
                             </p>
                             <p className="text-xs text-slate-500 mt-1">
-                              Type: {roll.roll_type} • Status: {roll.status}
+                              Type: {roll.roll_type || 'Parent'} • Status: {roll.status}
+                              {roll.parent_tt_sku_tag_number && (
+                                <> • From parent <span className="font-mono">{roll.parent_tt_sku_tag_number}</span></>
+                              )}
+                              {' '}• Job <span className="font-medium">{job.job_number}</span>
                             </p>
                             
                             {returnItem && (

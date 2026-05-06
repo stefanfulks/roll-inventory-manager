@@ -135,10 +135,13 @@ export default function RollDetail() {
 
   const planForJobMutation = useMutation({
     mutationFn: async (jobId) => {
+      console.log('[Plan] Starting plan for job:', jobId, 'roll:', roll?.id);
+      if (!jobId) throw new Error('Please pick a job from the list before confirming.');
+      if (!roll?.id) throw new Error('Roll data is not loaded yet. Please refresh and try again.');
       const user = await base44.auth.me();
       const job = jobs.find(j => j.id === jobId);
       if (!job) {
-        throw new Error(`Job ${jobId} not found in the loaded jobs list. Try refreshing the page.`);
+        throw new Error(`Job not found in the loaded jobs list. Try refreshing the page.`);
       }
 
       // createAllocationWithSync also updates roll.status to Planned.
@@ -185,12 +188,20 @@ export default function RollDetail() {
 
   const allocateForJobMutation = useMutation({
     mutationFn: async (jobId) => {
+      console.log('[Allocate] Starting allocation for job:', jobId, 'roll:', roll?.id);
+      if (!jobId) throw new Error('Please pick a job from the list before confirming.');
+      if (!roll?.id) throw new Error('Roll data is not loaded yet. Please refresh and try again.');
       const user = await base44.auth.me();
       const job = jobs.find(j => j.id === jobId);
       if (!job) {
-        throw new Error(`Job ${jobId} not found in the loaded jobs list. Try refreshing the page.`);
+        throw new Error(`Job not found in the loaded jobs list. Try refreshing the page.`);
+      }
+      const requestedLength = parseFloat(roll.current_length_ft);
+      if (!requestedLength || requestedLength <= 0) {
+        throw new Error(`Roll has no usable length (current_length_ft = ${roll.current_length_ft}).`);
       }
 
+      console.log('[Allocate] Calling createAllocationWithSync...');
       await createAllocationWithSync({
         job_id: jobId,
         job_name: job.job_name || job.job_number,
@@ -198,11 +209,12 @@ export default function RollDetail() {
         product_name: roll.product_name,
         width_ft: roll.width_ft,
         dye_lot_preference: roll.dye_lot,
-        requested_length_ft: roll.current_length_ft,
+        requested_length_ft: requestedLength,
         allocated_roll_ids: [roll.id],
         item_type: 'roll',
         status: ALLOCATION_STATUS.ALLOCATED,
       });
+      console.log('[Allocate] Allocation created successfully');
 
       await base44.entities.Transaction.create({
         transaction_type: 'AllocateForJob',
