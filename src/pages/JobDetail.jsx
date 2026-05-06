@@ -16,6 +16,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import UnmarkedReturnForm from '@/components/returns/UnmarkedReturnForm';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -69,6 +70,7 @@ export default function JobDetail() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItems, setSelectedItems] = useState([]);
   const [showReceiveReturns, setShowReceiveReturns] = useState(false);
+  const [showUnmarkedReturns, setShowUnmarkedReturns] = useState(false);
   const [returnItems, setReturnItems] = useState([]);
   const [returnInventoryItems, setReturnInventoryItems] = useState([]);
   const [slackChannel, setSlackChannel] = useState('');
@@ -1504,7 +1506,33 @@ export default function JobDetail() {
                 Process Returns
               </Button>
             </div>
+
+            <div className="pt-3 mt-3 border-t border-slate-100 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReceiveReturns(false);
+                  setShowUnmarkedReturns(true);
+                }}
+                className="text-sm text-slate-500 hover:text-slate-800 underline"
+              >
+                A roll came back, but it's not from this job
+              </button>
+            </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unmarked returns dialog (fallback when source is unknown) */}
+      <Dialog open={showUnmarkedReturns} onOpenChange={setShowUnmarkedReturns}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Receive without a job</DialogTitle>
+          </DialogHeader>
+          <UnmarkedReturnForm
+            onCancel={() => setShowUnmarkedReturns(false)}
+            onSuccess={() => setShowUnmarkedReturns(false)}
+          />
         </DialogContent>
       </Dialog>
 

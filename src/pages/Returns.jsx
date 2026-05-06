@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/card';
 import { toast } from 'sonner';
 import StatusBadge from '@/components/ui/StatusBadge';
+import UnmarkedReturnForm from '@/components/returns/UnmarkedReturnForm';
 import { ROLL_STATUS, STATUS_LABELS } from '@/lib/rollStatus';
 
 const CONDITION_OPTIONS = ['Good', 'Used', 'Damaged', 'Scrap'];
@@ -49,7 +50,7 @@ const CONDITION_OPTIONS = ['Good', 'Used', 'Damaged', 'Scrap'];
 export default function Returns() {
   const queryClient = useQueryClient();
 
-  // View states: 'select-job' | 'detail' | 'confirm'
+  // View states: 'select-job' | 'detail' | 'confirm' | 'unmarked'
   const [view, setView] = useState('select-job');
 
   const [selectedJobId, setSelectedJobId] = useState('');
@@ -439,8 +440,27 @@ export default function Returns() {
             >
               Continue
             </Button>
+
+            <div className="pt-4 mt-4 border-t border-slate-100">
+              <p className="text-sm text-slate-600 mb-2">
+                Don't know which job this came from?
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => setView('unmarked')}
+              >
+                Receive without a job
+              </Button>
+            </div>
           </CardContent>
         </Card>
+      )}
+
+      {view === 'unmarked' && (
+        <UnmarkedReturnForm
+          onCancel={() => setView('select-job')}
+          onSuccess={() => setView('select-job')}
+        />
       )}
 
       {view === 'detail' && (
