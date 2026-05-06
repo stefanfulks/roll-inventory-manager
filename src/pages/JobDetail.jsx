@@ -51,6 +51,7 @@ import SwapRollDialog from '@/components/job/SwapRollDialog';
 import { format } from 'date-fns';
 import { parseLocalDate } from '@/lib/dateHelpers';
 import {
+import { formatFeetInches } from '@/lib/dateHelpers';
   ROLL_STATUS,
   ALLOCATION_STATUS,
   ALLOCATION_STATUS_OPTIONS,
@@ -866,7 +867,7 @@ export default function JobDetail() {
                       <TableCell className="dark:text-slate-300">
                         {isTurfRoll ? (
                           <>
-                            {transaction.width_ft}ft × {transaction.length_after_ft}ft
+                            {formatFeetInches(transaction.width_ft)} × {formatFeetInches(transaction.length_after_ft)}
                             {transaction.dye_lot && ` • Dye Lot: ${transaction.dye_lot}`}
                           </>
                         ) : (
@@ -962,7 +963,7 @@ export default function JobDetail() {
                                    <div className="flex gap-3 mt-1 text-sm text-slate-600">
                                      <span>Dye Lot: {item.dye_lot}</span>
                                      <span>•</span>
-                                     <span>{item.width_ft}ft × {item.current_length_ft}ft</span>
+                                     <span>{formatFeetInches(item.width_ft)} × {formatFeetInches(item.current_length_ft)}</span>
                                      <span>•</span>
                                      <span>{item.location_bin && item.location_row ? `${item.location_bin}-${item.location_row}` : 'No location'}</span>
                                    </div>
@@ -1104,7 +1105,7 @@ export default function JobDetail() {
                     <TableCell className="text-slate-600">
                       {allocation.item_type === 'roll' ? (
                         <>
-                          {allocation.width_ft}ft × {allocation.requested_length_ft}ft
+                          {formatFeetInches(allocation.width_ft)} × {formatFeetInches(allocation.requested_length_ft)}
                           {allocation.dye_lot_preference && ` • Dye Lot: ${allocation.dye_lot_preference}`}
                         </>
                       ) : (
@@ -1318,7 +1319,7 @@ export default function JobDetail() {
                               )}
                             </p>
                             <p className="text-sm text-slate-600">
-                              {roll.product_name} • {roll.width_ft}ft × {roll.current_length_ft}ft • Dye Lot: {roll.dye_lot}
+                              {roll.product_name} • {formatFeetInches(roll.width_ft)} × {formatFeetInches(roll.current_length_ft)} • Dye Lot: {roll.dye_lot}
                             </p>
                             <p className="text-xs text-slate-500 mt-1">
                               Type: {roll.roll_type || 'Parent'} • Status: {roll.status}

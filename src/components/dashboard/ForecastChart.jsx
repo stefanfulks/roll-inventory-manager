@@ -4,6 +4,7 @@ import { Calendar, Package } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 export default function ForecastChart({ rolls, jobs }) {
   // Get rolls in Planned status
@@ -86,7 +87,7 @@ export default function ForecastChart({ rolls, jobs }) {
                         {roll.tt_sku_tag_number || roll.roll_tag}
                       </Link>
                       <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                        {roll.product_name} • {roll.width_ft}ft × {roll.current_length_ft}ft
+                        {roll.product_name} • {formatFeetInches(roll.width_ft)} × {formatFeetInches(roll.current_length_ft)}
                       </p>
                       <Link
                         to={createPageUrl(`JobDetail?id=${job.id}`)}

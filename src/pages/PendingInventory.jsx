@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import {
+import { formatFeetInches } from '@/lib/dateHelpers';
   Select,
   SelectContent,
   SelectItem,
@@ -140,7 +141,7 @@ export default function PendingInventory() {
                         <div className="flex items-center gap-3 text-sm text-slate-600 mt-1">
                           <span>Dye Lot: {roll.dye_lot}</span>
                           <span>•</span>
-                          <span>{roll.width_ft}ft × {roll.current_length_ft}ft</span>
+                          <span>{formatFeetInches(roll.width_ft)} × {formatFeetInches(roll.current_length_ft)}</span>
                           <span>•</span>
                           <span>Vendor: {roll.vendor_name}</span>
                           {roll.condition && (

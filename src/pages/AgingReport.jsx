@@ -27,6 +27,7 @@ import {
   groupByAging,
 } from '@/lib/costing';
 import { ROLL_STATUS } from '@/lib/rollStatus';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 export default function AgingReport() {
   const isAdmin = useIsAdmin();
@@ -209,7 +210,7 @@ export default function AgingReport() {
                         <TableCell>{roll.product_name}</TableCell>
                         <TableCell className="text-slate-600">{roll.dye_lot}</TableCell>
                         <TableCell>
-                          {roll.width_ft}ft × {roll.current_length_ft}ft
+                          {formatFeetInches(roll.width_ft)} × {formatFeetInches(roll.current_length_ft)}
                         </TableCell>
                         <TableCell className="text-slate-600">
                           {roll.date_received

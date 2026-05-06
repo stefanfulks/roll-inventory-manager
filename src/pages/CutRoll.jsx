@@ -27,6 +27,7 @@ import { toast } from 'sonner';
 import RollSearch from '@/components/inventory/RollSearch';
 import StatusBadge from '@/components/ui/StatusBadge';
 import OwnerBadge from '@/components/ui/OwnerBadge';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 function generateRollTag() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -301,11 +302,11 @@ export default function CutRoll() {
                   </div>
                   <div>
                     <p className="text-slate-500">Width</p>
-                    <p className="font-medium">{selectedRoll.width_ft} ft</p>
+                    <p className="font-medium">{formatFeetInches(selectedRoll.width_ft)}</p>
                   </div>
                   <div>
                     <p className="text-slate-500">Remaining</p>
-                    <p className="font-medium text-emerald-600">{selectedRoll.current_length_ft} ft</p>
+                    <p className="font-medium text-emerald-600">{formatFeetInches(selectedRoll.current_length_ft)}</p>
                   </div>
                 </div>
                 {selectedRoll.location_name && (
@@ -344,7 +345,7 @@ export default function CutRoll() {
               {selectedRoll && cutLengthNum !== null && cutLengthNum > selectedRoll.current_length_ft && (
                 <p className="text-sm text-red-500 flex items-center gap-1">
                   <AlertTriangle className="h-4 w-4" />
-                  Cannot exceed {selectedRoll.current_length_ft}ft
+                  Cannot exceed {formatFeetInches(selectedRoll.current_length_ft)}
                 </p>
               )}
               {selectedRoll && cutLengthNum !== null && cutLengthNum > 0 && cutLengthNum <= selectedRoll.current_length_ft && (
@@ -450,7 +451,7 @@ export default function CutRoll() {
               </div>
               <div>
                 <p className="font-semibold text-emerald-800">Child Roll Created</p>
-                <p className="text-sm text-emerald-600">{createdChild.current_length_ft}ft cut from parent</p>
+                <p className="text-sm text-emerald-600">{formatFeetInches(createdChild.current_length_ft)} cut from parent</p>
               </div>
             </div>
             <div className="p-4 bg-white rounded-lg border border-emerald-200">
@@ -458,7 +459,7 @@ export default function CutRoll() {
                 <div>
                   <p className="font-mono font-bold text-lg">{createdChild.roll_tag}</p>
                   <p className="text-sm text-slate-600">
-                    {createdChild.product_name} • {createdChild.dye_lot} • {createdChild.width_ft}ft × {createdChild.current_length_ft}ft
+                    {createdChild.product_name} • {createdChild.dye_lot} • {formatFeetInches(createdChild.width_ft)} × {formatFeetInches(createdChild.current_length_ft)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">

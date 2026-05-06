@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 function generateTTSKUTagNumber() {
   const chars = '0123456789';
@@ -769,7 +770,7 @@ export default function Receive() {
                     >
                       <p className="font-mono font-medium text-emerald-800">{roll.tt_sku_tag_number}</p>
                       <p className="text-sm text-emerald-600">
-                        {roll.product_name} • {roll.width_ft}ft × {roll.current_length_ft}ft
+                        {roll.product_name} • {formatFeetInches(roll.width_ft)} × {formatFeetInches(roll.current_length_ft)}
                       </p>
                       {roll.location_bin && roll.location_row ? (
                         <p className="text-xs text-emerald-500 mt-1">Location: {roll.location_bin}{roll.location_row}</p>

@@ -52,6 +52,7 @@ import { toast } from 'sonner';
 import RollSearch from '@/components/inventory/RollSearch';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { ROLL_STATUS, ROLL_STATUS_OPTIONS, STATUS_LABELS } from '@/lib/rollStatus';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 export default function Inventory() {
   const queryClient = useQueryClient();
@@ -340,10 +341,10 @@ export default function Inventory() {
                         </Link>
                       </TableCell>
                       <TableCell className="text-slate-600 dark:text-slate-300">{roll.dye_lot}</TableCell>
-                      <TableCell className="dark:text-white">{roll.width_ft}ft</TableCell>
+                      <TableCell className="dark:text-white">{formatFeetInches(roll.width_ft)}</TableCell>
                       <TableCell className="dark:text-white">
-                        <span className="font-medium">{roll.current_length_ft}</span>
-                        <span className="text-slate-400 dark:text-slate-500">/{roll.original_length_ft}ft</span>
+                        <span className="font-medium">{formatFeetInches(roll.current_length_ft)}</span>
+                        <span className="text-slate-400 dark:text-slate-500"> / {formatFeetInches(roll.original_length_ft)}</span>
                       </TableCell>
                       <TableCell><StatusBadge status={roll.roll_type || 'Parent'} size="sm" /></TableCell>
                       <TableCell><StatusBadge status={roll.status} size="sm" /></TableCell>

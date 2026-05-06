@@ -31,6 +31,7 @@ import { toast } from 'sonner';
 import StatusBadge from '@/components/ui/StatusBadge';
 import UnmarkedReturnForm from '@/components/returns/UnmarkedReturnForm';
 import { ROLL_STATUS, STATUS_LABELS } from '@/lib/rollStatus';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 const CONDITION_OPTIONS = ['Good', 'Used', 'Damaged', 'Scrap'];
 
@@ -540,8 +541,8 @@ export default function Returns() {
                                 size="sm"
                               />
                               <span className="text-sm text-slate-500">
-                                {roll.product_name} • {roll.width_ft}ft ×{' '}
-                                {roll.current_length_ft}ft • Dye lot {roll.dye_lot}
+                                {roll.product_name} • {formatFeetInches(roll.width_ft)} ×{' '}
+                                {formatFeetInches(roll.current_length_ft)} • Dye lot {roll.dye_lot}
                               </span>
                             </div>
 
@@ -569,7 +570,7 @@ export default function Returns() {
                                     }}
                                   />
                                   <p className="text-xs text-slate-500 mt-1">
-                                    Enter less than {roll.current_length_ft}ft for a
+                                    Enter less than {formatFeetInches(roll.current_length_ft)} for a
                                     partial return.
                                   </p>
                                 </div>

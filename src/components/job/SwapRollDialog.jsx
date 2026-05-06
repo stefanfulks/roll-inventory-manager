@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Search, RefreshCw } from 'lucide-react';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { toast } from 'sonner';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 export default function SwapRollDialog({ 
   open, 
@@ -133,7 +134,7 @@ export default function SwapRollDialog({
             <p className="text-sm text-amber-800 font-medium">Current Roll (Inaccessible)</p>
             <p className="font-mono text-lg font-bold mt-1">{currentRoll?.tt_sku_tag_number || currentRoll?.roll_tag}</p>
             <p className="text-sm text-slate-600">
-              {currentRoll?.width_ft}ft × {currentRoll?.current_length_ft}ft • Dye Lot: {currentRoll?.dye_lot}
+              {formatFeetInches(currentRoll?.width_ft)} × {formatFeetInches(currentRoll?.current_length_ft)} • Dye Lot: {currentRoll?.dye_lot}
             </p>
           </div>
 
@@ -169,7 +170,7 @@ export default function SwapRollDialog({
                       <div>
                         <p className="font-mono font-medium">{roll.tt_sku_tag_number || roll.roll_tag}</p>
                         <p className="text-sm text-slate-600">
-                          {roll.width_ft}ft × {roll.current_length_ft}ft • Dye Lot: {roll.dye_lot}
+                          {formatFeetInches(roll.width_ft)} × {formatFeetInches(roll.current_length_ft)} • Dye Lot: {roll.dye_lot}
                         </p>
                         {roll.location_bin && roll.location_row && (
                           <p className="text-xs text-slate-500">

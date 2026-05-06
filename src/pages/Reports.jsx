@@ -15,6 +15,7 @@ import { format, differenceInDays } from 'date-fns';
 import { toast } from 'sonner';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 export default function Reports() {
   const { data: rolls = [], isLoading: rollsLoading } = useQuery({
@@ -405,7 +406,7 @@ export default function Reports() {
               <div className="text-xs text-slate-500 bg-slate-50 p-2 rounded">
                 {lowInventory.slice(0, 3).map((item, idx) => (
                   <div key={idx} className="py-1">
-                    {item.product_name} ({item.width_ft}ft): {item.count} rolls
+                    {item.product_name} ({formatFeetInches(item.width_ft)}): {item.count} rolls
                   </div>
                 ))}
                 {lowInventory.length > 3 && <div className="py-1">+ {lowInventory.length - 3} more...</div>}

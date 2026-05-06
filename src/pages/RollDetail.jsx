@@ -37,6 +37,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
+import { formatFeetInches } from '@/lib/dateHelpers';
   ROLL_STATUS,
   ALLOCATION_STATUS,
   ROLL_STATUS_OPTIONS,
@@ -385,15 +386,15 @@ export default function RollDetail() {
               </div>
               <div>
                 <p className="text-sm text-slate-500 mb-1">Width</p>
-                <p className="font-medium text-slate-800">{roll.width_ft} ft</p>
+                <p className="font-medium text-slate-800">{formatFeetInches(roll.width_ft)}</p>
               </div>
               <div>
                 <p className="text-sm text-slate-500 mb-1">Current Length</p>
-                <p className="font-medium text-slate-800">{roll.current_length_ft} ft</p>
+                <p className="font-medium text-slate-800">{formatFeetInches(roll.current_length_ft)}</p>
               </div>
               <div>
                 <p className="text-sm text-slate-500 mb-1">Original Length</p>
-                <p className="font-medium text-slate-800">{roll.original_length_ft} ft</p>
+                <p className="font-medium text-slate-800">{formatFeetInches(roll.original_length_ft)}</p>
               </div>
               <div>
                 <p className="text-sm text-slate-500 mb-1">Current Sq Ft</p>
@@ -464,7 +465,7 @@ export default function RollDetail() {
                   </div>
                   <div>
                     <p className="text-sm text-slate-500 mb-1">Current Length</p>
-                    <p className="font-medium text-slate-800">{parentRoll.current_length_ft} ft</p>
+                    <p className="font-medium text-slate-800">{formatFeetInches(parentRoll.current_length_ft)}</p>
                   </div>
                   <div>
                     <p className="text-sm text-slate-500 mb-1">Status</p>
@@ -502,7 +503,7 @@ export default function RollDetail() {
                         <StatusBadge status={child.status} size="sm" />
                       </div>
                       <div className="flex items-center gap-4 text-xs text-slate-600">
-                        <span>{child.width_ft}ft × {child.current_length_ft}ft</span>
+                        <span>{formatFeetInches(child.width_ft)} × {formatFeetInches(child.current_length_ft)}</span>
                         <span>•</span>
                         <span>Dye Lot: {child.dye_lot}</span>
                         {child.location_bin && child.location_row && (
@@ -573,7 +574,7 @@ export default function RollDetail() {
                           </div>
                           {tx.length_change_ft !== 0 && (
                             <p className="text-sm text-slate-500">
-                              {tx.length_before_ft}ft → {tx.length_after_ft}ft
+                              {tx.length_before_ft}ft → {formatFeetInches(tx.length_after_ft)}
                               <span className={tx.length_change_ft < 0 ? 'text-red-500' : 'text-emerald-500'}>
                                 {' '}({tx.length_change_ft > 0 ? '+' : ''}{tx.length_change_ft}ft)
                               </span>

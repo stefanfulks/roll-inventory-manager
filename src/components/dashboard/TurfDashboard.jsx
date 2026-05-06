@@ -11,6 +11,7 @@ import ForecastChart from '@/components/dashboard/ForecastChart';
 import { ROLL_STATUS } from '@/lib/rollStatus';
 import { useIsAdmin } from '@/lib/AuthContext';
 import {
+import { formatFeetInches } from '@/lib/dateHelpers';
   longSittingRolls,
   rollValue,
   inventoryValue,
@@ -293,7 +294,7 @@ export default function TurfDashboard({
                       <td className="py-2 font-mono">{r.tt_sku_tag_number || r.roll_tag}</td>
                       <td className="py-2">{r.product_name}</td>
                       <td className="py-2">
-                        {r.width_ft}ft × {r.current_length_ft}ft
+                        {formatFeetInches(r.width_ft)} × {formatFeetInches(r.current_length_ft)}
                       </td>
                       <td className="py-2">
                         <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-orange-100 text-orange-700">
@@ -631,7 +632,7 @@ export default function TurfDashboard({
                         {roll.tt_sku_tag_number || roll.roll_tag}
                       </Link>
                       <p className="text-sm text-slate-600 dark:text-slate-300">
-                        {roll.product_name} • {roll.current_length_ft}ft • {roll.location_bin && roll.location_row ? `${roll.location_bin}-${roll.location_row}` : 'No location'}
+                        {roll.product_name} • {formatFeetInches(roll.current_length_ft)} • {roll.location_bin && roll.location_row ? `${roll.location_bin}-${roll.location_row}` : 'No location'}
                       </p>
                     </div>
                     <div className="text-right">

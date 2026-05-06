@@ -36,6 +36,7 @@ import { createPageUrl } from '@/utils';
 import { toast } from 'sonner';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { ROLL_STATUS, ROLL_PENDING_STATUSES, STATUS_LABELS } from '@/lib/rollStatus';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 const DISPOSITION_OPTIONS = [
   { value: ROLL_STATUS.AVAILABLE, label: 'Release to Available inventory' },
@@ -255,7 +256,7 @@ export default function PendingReturns() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {roll.width_ft}ft × {roll.current_length_ft}ft
+                      {formatFeetInches(roll.width_ft)} × {formatFeetInches(roll.current_length_ft)}
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={roll.condition || 'Used'} size="sm" />
@@ -298,7 +299,7 @@ export default function PendingReturns() {
                 <div>
                   <span className="text-slate-500">Size: </span>
                   <span className="font-medium">
-                    {reviewRoll.width_ft}ft × {reviewRoll.current_length_ft}ft
+                    {formatFeetInches(reviewRoll.width_ft)} × {formatFeetInches(reviewRoll.current_length_ft)}
                   </span>
                 </div>
                 <div>
