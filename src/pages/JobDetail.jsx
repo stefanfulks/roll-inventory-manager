@@ -51,7 +51,6 @@ import SwapRollDialog from '@/components/job/SwapRollDialog';
 import { format } from 'date-fns';
 import { parseLocalDate } from '@/lib/dateHelpers';
 import {
-import { formatFeetInches } from '@/lib/dateHelpers';
   ROLL_STATUS,
   ALLOCATION_STATUS,
   ALLOCATION_STATUS_OPTIONS,
@@ -61,6 +60,7 @@ import { formatFeetInches } from '@/lib/dateHelpers';
   deleteAllocationWithSync,
   releaseRoll,
 } from '@/lib/rollStatus';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 export default function JobDetail() {
   const queryClient = useQueryClient();

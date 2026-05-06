@@ -8,13 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import {
-import { formatFeetInches } from '@/lib/dateHelpers';
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 export default function PendingInventory() {
   const queryClient = useQueryClient();

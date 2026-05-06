@@ -11,13 +11,13 @@ import ForecastChart from '@/components/dashboard/ForecastChart';
 import { ROLL_STATUS } from '@/lib/rollStatus';
 import { useIsAdmin } from '@/lib/AuthContext';
 import {
-import { formatFeetInches } from '@/lib/dateHelpers';
   longSittingRolls,
   rollValue,
   inventoryValue,
   daysSinceReceived,
   formatCurrency,
 } from '@/lib/costing';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 

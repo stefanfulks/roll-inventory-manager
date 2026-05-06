@@ -37,7 +37,6 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
-import { formatFeetInches } from '@/lib/dateHelpers';
   ROLL_STATUS,
   ALLOCATION_STATUS,
   ROLL_STATUS_OPTIONS,
@@ -48,6 +47,7 @@ import { formatFeetInches } from '@/lib/dateHelpers';
   setRollStatusManually,
   findActiveAllocationForRoll,
 } from '@/lib/rollStatus';
+import { formatFeetInches } from '@/lib/dateHelpers';
 
 export default function RollDetail() {
   const queryClient = useQueryClient();
