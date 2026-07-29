@@ -1,4 +1,5 @@
 import { Toaster } from "@/components/ui/toaster"
+import { Toaster as SonnerToaster } from "sonner"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import NavigationTracker from '@/lib/NavigationTracker'
@@ -74,6 +75,16 @@ function App() {
           <AuthenticatedApp />
         </Router>
         <Toaster />
+        {/* Every page reports success/failure via `toast` from sonner, which needs
+            its own renderer. Without this, all of those messages are silent and
+            failed writes look like a dead button. */}
+        <SonnerToaster
+          position="top-right"
+          richColors
+          closeButton
+          duration={6000}
+          toastOptions={{ style: { fontSize: '0.95rem' } }}
+        />
       </QueryClientProvider>
     </AuthProvider>
   )

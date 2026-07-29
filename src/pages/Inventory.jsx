@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { 
-  Package, 
-  Filter, 
+import {
   Eye,
   ChevronDown,
   Scissors,
   Trash2,
   Edit,
-  CheckSquare,
-  Square,
-  ArrowUpDown
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  RefreshCw,
+  AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,11 +51,21 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import RollSearch from '@/components/inventory/RollSearch';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { ROLL_STATUS, ROLL_STATUS_OPTIONS, STATUS_LABELS } from '@/lib/rollStatus';
+import {
+  ROLL_STATUS,
+  ROLL_STATUS_OPTIONS,
+  ROLL_ACTIVE_JOB_STATUSES,
+  MANUAL_ROLL_STATUS_OPTIONS,
+  STATUS_LABELS,
+  findActiveAllocationForRoll,
+  setRollStatusManually,
+} from '@/lib/rollStatus';
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { describeError } from '@/lib/query-client';
 
 export default function Inventory() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   // Initialize filters from URL so dashboard can deep-link in pre-filtered.
   const urlParams = new URLSearchParams(window.location.search);
   const [statusFilter, setStatusFilter] = useState(urlParams.get('status') || 'all');
@@ -67,27 +77,44 @@ export default function Inventory() {
   const [editingRoll, setEditingRoll] = useState(null);
   const [sortColumn, setSortColumn] = useState('created_date');
   const [sortDirection, setSortDirection] = useState('desc');
+  const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState({
     tt_sku_tag_number: '',
     manufacturer_roll_number: '',
-    location_bin: '',
-    location_row: '',
+    location_id: '',
     dye_lot: '',
     status: '',
     notes: ''
   });
 
-  const { data: rolls = [], isLoading } = useQuery({
+  const { data: rolls = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['rolls', sortColumn, sortDirection],
     queryFn: () => {
       const sortParam = sortDirection === 'desc' ? `-${sortColumn}` : sortColumn;
       return base44.entities.Roll.list(sortParam, 1000);
     },
+    placeholderData: keepPreviousData,
   });
 
-  const { data: products = [] } = useQuery({
+  useQuery({
     queryKey: ['products'],
     queryFn: () => base44.entities.Product.list(),
+  });
+
+  // Needed so a manual status change can't desync a live allocation.
+  const { data: allAllocations = [] } = useQuery({
+    queryKey: ['allocations'],
+    queryFn: () => base44.entities.Allocation.list('-created_date', 5000),
+  });
+
+  const { data: locations = [] } = useQuery({
+    queryKey: ['locations', 'turf'],
+    queryFn: async () => {
+      const locs = await base44.entities.Location.list();
+      return locs
+        .filter(l => l.designated_for === 'all' || l.designated_for === 'turf_only')
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    },
   });
 
   const filteredRolls = rolls.filter(roll => {
@@ -109,24 +136,48 @@ export default function Inventory() {
 
   const uniqueProducts = [...new Set(rolls.map(r => r.product_name).filter(Boolean))];
 
+  // Selection survives filter changes, so only ever act on rolls the user can see.
+  const selectedVisibleRolls = filteredRolls.filter(r => selectedRolls.includes(r.id));
+  const allVisibleSelected = filteredRolls.length > 0 && filteredRolls.every(r => selectedRolls.includes(r.id));
+
+  const editingAllocation = editingRoll ? findActiveAllocationForRoll(editingRoll.id, allAllocations) : null;
+  const editStatusOptions = editingAllocation
+    ? ROLL_STATUS_OPTIONS.filter(s => ROLL_ACTIVE_JOB_STATUSES.includes(s) || s === editingRoll?.status)
+    : MANUAL_ROLL_STATUS_OPTIONS;
+
   const updateRollMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Roll.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
       toast.success('Roll updated successfully');
+    },
+    onError: (err) => {
+      toast.error(`Couldn't save this roll: ${describeError(err)}`);
     }
   });
 
   const deleteRollsMutation = useMutation({
     mutationFn: async (rollIds) => {
-      for (const id of rollIds) {
-        await base44.entities.Roll.delete(id);
-      }
+      const results = await Promise.allSettled(
+        rollIds.map(id => base44.entities.Roll.delete(id))
+      );
+      const failures = results.filter(r => r.status === 'rejected');
+      return { total: rollIds.length, failures };
     },
-    onSuccess: () => {
+    onSuccess: ({ total, failures }) => {
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
       setSelectedRolls([]);
-      toast.success('Rolls deleted successfully');
+      if (failures.length === 0) {
+        toast.success(`${total} roll${total === 1 ? '' : 's'} deleted`);
+      } else {
+        toast.error(
+          `Deleted ${total - failures.length} of ${total} — ${failures.length} failed: ${describeError(failures[0].reason)}`
+        );
+      }
+    },
+    onError: (err) => {
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      toast.error(`Delete failed: ${describeError(err)}`);
     }
   });
 
@@ -151,8 +202,7 @@ export default function Inventory() {
     setEditForm({
       tt_sku_tag_number: roll.tt_sku_tag_number || '',
       manufacturer_roll_number: roll.manufacturer_roll_number || '',
-      location_bin: roll.location_bin || '',
-      location_row: roll.location_row || '',
+      location_id: roll.location_id || '',
       dye_lot: roll.dye_lot || '',
       status: roll.status || '',
       notes: roll.notes || ''
@@ -162,28 +212,76 @@ export default function Inventory() {
 
   const handleSaveEdit = async () => {
     if (!editingRoll) return;
-    
-    const updates = {};
-    if (editForm.tt_sku_tag_number) updates.tt_sku_tag_number = editForm.tt_sku_tag_number;
-    if (editForm.manufacturer_roll_number) updates.manufacturer_roll_number = editForm.manufacturer_roll_number;
-    if (editForm.location_bin && editForm.location_row) {
-      updates.location_bin = editForm.location_bin;
-      updates.location_row = editForm.location_row;
-    }
-    if (editForm.dye_lot) updates.dye_lot = editForm.dye_lot;
-    if (editForm.status) updates.status = editForm.status;
-    if (editForm.notes !== undefined) updates.notes = editForm.notes;
+    const roll = editingRoll;
 
-    await updateRollMutation.mutateAsync({ id: editingRoll.id, data: updates });
-    setShowEditDialog(false);
-    setEditingRoll(null);
+    // Built unconditionally so blanking a field actually clears it.
+    const candidate = {
+      tt_sku_tag_number: editForm.tt_sku_tag_number.trim(),
+      manufacturer_roll_number: editForm.manufacturer_roll_number.trim(),
+      dye_lot: editForm.dye_lot.trim(),
+      notes: editForm.notes,
+    };
+    if (editForm.location_id) {
+      const location = locations.find(l => l.id === editForm.location_id);
+      candidate.location_id = editForm.location_id;
+      candidate.location_name = location?.name || '';
+    }
+
+    const updates = {};
+    Object.entries(candidate).forEach(([key, value]) => {
+      if (value !== (roll[key] ?? '')) updates[key] = value;
+    });
+
+    const statusChanged = !!editForm.status && editForm.status !== roll.status;
+
+    setIsSaving(true);
+    try {
+      // Status must go through the allocation guardrails, never straight to Roll.update.
+      if (statusChanged) {
+        const result = await setRollStatusManually(roll, editForm.status, allAllocations);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await updateRollMutation.mutateAsync({ id: roll.id, data: updates });
+      } else if (statusChanged) {
+        queryClient.invalidateQueries({ queryKey: ['rolls'] });
+        queryClient.invalidateQueries({ queryKey: ['allocations'] });
+        toast.success('Roll updated successfully');
+      }
+
+      setShowEditDialog(false);
+      setEditingRoll(null);
+    } catch {
+      // Already reported by onError. A status change may have landed before the
+      // field write failed, so refresh and leave the dialog open for a retry.
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      queryClient.invalidateQueries({ queryKey: ['allocations'] });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleBulkDelete = async () => {
-    if (selectedRolls.length === 0) return;
-    if (!confirm(`Delete ${selectedRolls.length} selected rolls? This cannot be undone.`)) return;
-    
-    await deleteRollsMutation.mutateAsync(selectedRolls);
+    if (selectedVisibleRolls.length === 0) return;
+
+    const tags = selectedVisibleRolls.slice(0, 5).map(r => r.tt_sku_tag_number || r.roll_tag || r.id);
+    const more = selectedVisibleRolls.length > tags.length
+      ? `\n...and ${selectedVisibleRolls.length - tags.length} more`
+      : '';
+    const message =
+      `Delete ${selectedVisibleRolls.length} roll${selectedVisibleRolls.length === 1 ? '' : 's'}?\n\n` +
+      `${tags.join('\n')}${more}\n\nThis cannot be undone.`;
+    if (!confirm(message)) return;
+
+    try {
+      await deleteRollsMutation.mutateAsync(selectedVisibleRolls.map(r => r.id));
+    } catch {
+      // Already reported by onError.
+    }
   };
 
   const handleSort = (column) => {
@@ -195,6 +293,13 @@ export default function Inventory() {
     }
   };
 
+  const renderSortIcon = (column) => {
+    if (sortColumn !== column) return <ArrowUpDown className="h-3 w-3 opacity-30" />;
+    return sortDirection === 'asc'
+      ? <ArrowUp className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+      : <ArrowDown className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />;
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -203,22 +308,23 @@ export default function Inventory() {
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 dark:text-white">Inventory</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">{filteredRolls.length} rolls found</p>
         </div>
-        {selectedRolls.length > 0 && (
-          <Button 
-            variant="destructive" 
+        {selectedVisibleRolls.length > 0 && (
+          <Button
+            variant="destructive"
             onClick={handleBulkDelete}
             disabled={deleteRollsMutation.isPending}
           >
             <Trash2 className="h-4 w-4 mr-2" />
-            Delete ({selectedRolls.length})
+            Delete ({selectedVisibleRolls.length})
           </Button>
         )}
       </div>
 
       {/* Search & Filters */}
       <div className="bg-white dark:bg-[#2d2d2d] rounded-2xl p-4 border border-slate-100 dark:border-slate-700/50 shadow-sm space-y-4">
-        <RollSearch 
-          onSearch={setSearchTerm} 
+        <RollSearch
+          onSearch={setSearchTerm}
+          initialValue={searchTerm}
           placeholder="Search TT SKU #, product, dye lot, location..."
           autoFocus
         />
@@ -269,52 +375,85 @@ export default function Inventory() {
               <Skeleton key={i} className="h-12 w-full" />
             ))}
           </div>
+        ) : isError ? (
+          <div className="p-12 text-center space-y-3">
+            <AlertTriangle className="h-8 w-8 mx-auto text-amber-500" />
+            <p className="font-semibold text-slate-800 dark:text-white">Couldn&apos;t load inventory</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              The roll list failed to load, so nothing is shown here — this is not a filter problem.
+            </p>
+            <Button
+              variant="outline"
+              onClick={() => refetch()}
+              className="dark:border-slate-700 dark:text-slate-300"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Retry
+            </Button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 dark:bg-slate-800/50 border-b dark:border-slate-700/50">
                   <TableHead className="w-12 dark:text-slate-300">
-                    <Checkbox 
-                      checked={selectedRolls.length === filteredRolls.length && filteredRolls.length > 0}
+                    <Checkbox
+                      checked={allVisibleSelected}
                       onCheckedChange={handleSelectAll}
                     />
                   </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('tt_sku_tag_number')}>
                     <div className="flex items-center gap-1">
-                      TT SKU # <ArrowUpDown className="h-3 w-3" />
+                      TT SKU # {renderSortIcon('tt_sku_tag_number')}
+                    </div>
+                  </TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('manufacturer_roll_number')}>
+                    <div className="flex items-center gap-1">
+                      Mfr Roll # {renderSortIcon('manufacturer_roll_number')}
                     </div>
                   </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('product_name')}>
                     <div className="flex items-center gap-1">
-                      Product <ArrowUpDown className="h-3 w-3" />
+                      Product {renderSortIcon('product_name')}
                     </div>
                   </TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Dye Lot</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('dye_lot')}>
+                    <div className="flex items-center gap-1">
+                      Dye Lot {renderSortIcon('dye_lot')}
+                    </div>
+                  </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('width_ft')}>
                     <div className="flex items-center gap-1">
-                      Width <ArrowUpDown className="h-3 w-3" />
+                      Width {renderSortIcon('width_ft')}
                     </div>
                   </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('current_length_ft')}>
                     <div className="flex items-center gap-1">
-                      Length <ArrowUpDown className="h-3 w-3" />
+                      Length {renderSortIcon('current_length_ft')}
                     </div>
                   </TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Type</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('roll_type')}>
+                    <div className="flex items-center gap-1">
+                      Type {renderSortIcon('roll_type')}
+                    </div>
+                  </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('status')}>
                     <div className="flex items-center gap-1">
-                      Status <ArrowUpDown className="h-3 w-3" />
+                      Status {renderSortIcon('status')}
                     </div>
                   </TableHead>
-                  <TableHead className="font-semibold dark:text-slate-300">Location</TableHead>
+                  <TableHead className="font-semibold dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" onClick={() => handleSort('location_name')}>
+                    <div className="flex items-center gap-1">
+                      Location {renderSortIcon('location_name')}
+                    </div>
+                  </TableHead>
                   <TableHead className="font-semibold dark:text-slate-300">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredRolls.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-12 text-slate-500 dark:text-slate-400">
+                    <TableCell colSpan={11} className="text-center py-12 text-slate-500 dark:text-slate-400">
                       No rolls found matching your filters
                     </TableCell>
                   </TableRow>
@@ -323,15 +462,16 @@ export default function Inventory() {
                     <TableRow 
                       key={roll.id} 
                       className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors border-b dark:border-slate-700/30 cursor-pointer"
-                      onClick={() => window.location.href = createPageUrl(`RollDetail?id=${roll.id}`)}
+                      onClick={() => navigate(createPageUrl(`RollDetail?id=${roll.id}`))}
                     >
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        <Checkbox 
+                        <Checkbox
                           checked={selectedRolls.includes(roll.id)}
                           onCheckedChange={(checked) => handleSelectRoll(roll.id, checked)}
                         />
                       </TableCell>
                       <TableCell className="font-mono font-medium dark:text-white">{roll.tt_sku_tag_number || roll.roll_tag}</TableCell>
+                      <TableCell className="font-mono text-slate-600 dark:text-slate-300">{roll.manufacturer_roll_number || '-'}</TableCell>
                       <TableCell className="font-medium dark:text-white">
                         <Link 
                           to={createPageUrl(`RollDetail?id=${roll.id}`)} 
@@ -340,11 +480,11 @@ export default function Inventory() {
                           {roll.product_name}
                         </Link>
                       </TableCell>
-                      <TableCell className="text-slate-600 dark:text-slate-300">{roll.dye_lot}</TableCell>
-                      <TableCell className="dark:text-white">{formatFeetInches(roll.width_ft)}</TableCell>
+                      <TableCell className="text-slate-600 dark:text-slate-300">{roll.dye_lot || '-'}</TableCell>
+                      <TableCell className="dark:text-white">{formatFeetInches(roll.width_ft) || '-'}</TableCell>
                       <TableCell className="dark:text-white">
-                        <span className="font-medium">{formatFeetInches(roll.current_length_ft)}</span>
-                        <span className="text-slate-400 dark:text-slate-500"> / {formatFeetInches(roll.original_length_ft)}</span>
+                        <span className="font-medium">{formatFeetInches(roll.current_length_ft) || '-'}</span>
+                        <span className="text-slate-400 dark:text-slate-500"> / {formatFeetInches(roll.original_length_ft) || '-'}</span>
                       </TableCell>
                       <TableCell><StatusBadge status={roll.roll_type || 'Parent'} size="sm" /></TableCell>
                       <TableCell><StatusBadge status={roll.status} size="sm" /></TableCell>
@@ -425,47 +565,41 @@ export default function Inventory() {
             </div>
             <div className="space-y-2">
               <Label className="dark:text-slate-300">Status</Label>
+              {editingAllocation && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Allocated to a job — changing to a job-state status updates the allocation. To free the roll, cancel the allocation from the job page.
+                </p>
+              )}
               <Select
                 value={editForm.status}
                 onValueChange={v => setEditForm(p => ({ ...p, status: v }))}
               >
                 <SelectTrigger className="dark:bg-slate-800 dark:text-white dark:border-slate-700"><SelectValue placeholder="Select status" /></SelectTrigger>
                 <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
-                  {ROLL_STATUS_OPTIONS.map(s => (
+                  {editStatusOptions.map(s => (
                     <SelectItem key={s} value={s}>{STATUS_LABELS[s] || s}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="dark:text-slate-300">Location Bin</Label>
-                <Select
-                  value={editForm.location_bin}
-                  onValueChange={v => setEditForm(p => ({ ...p, location_bin: v }))}
-                >
-                  <SelectTrigger className="dark:bg-slate-800 dark:text-white dark:border-slate-700"><SelectValue placeholder="1-9" /></SelectTrigger>
-                  <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
-                    {Array.from({ length: 9 }, (_, i) => i + 1).map(bin => (
-                      <SelectItem key={bin} value={bin.toString()}>{bin}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="dark:text-slate-300">Location Row</Label>
-                <Select
-                  value={editForm.location_row}
-                  onValueChange={v => setEditForm(p => ({ ...p, location_row: v }))}
-                >
-                  <SelectTrigger className="dark:bg-slate-800 dark:text-white dark:border-slate-700"><SelectValue placeholder="A-C" /></SelectTrigger>
-                  <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
-                    {['A', 'B', 'C'].map(row => (
-                      <SelectItem key={row} value={row}>{row}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label className="dark:text-slate-300">Location</Label>
+              <Select
+                value={editForm.location_id}
+                onValueChange={v => setEditForm(p => ({ ...p, location_id: v }))}
+              >
+                <SelectTrigger className="dark:bg-slate-800 dark:text-white dark:border-slate-700"><SelectValue placeholder="Select location" /></SelectTrigger>
+                <SelectContent className="dark:bg-[#2d2d2d] dark:border-slate-700">
+                  {locations.map(l => (
+                    <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {(editingRoll?.location_bin || editingRoll?.location_row) && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Bin/row from receiving: {editingRoll.location_bin || '-'}{editingRoll.location_row || ''}
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label className="dark:text-slate-300">Notes</Label>
@@ -481,12 +615,12 @@ export default function Inventory() {
             <Button variant="outline" onClick={() => setShowEditDialog(false)} className="dark:border-slate-700 dark:text-slate-300">
               Cancel
             </Button>
-            <Button 
+            <Button
               onClick={handleSaveEdit}
-              disabled={updateRollMutation.isPending}
+              disabled={isSaving}
               className="bg-emerald-600 hover:bg-emerald-700"
             >
-              Save Changes
+              {isSaving ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>

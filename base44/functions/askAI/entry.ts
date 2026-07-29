@@ -21,8 +21,30 @@ const ROLL_STATUS = {
   RETURNED_HOLD: 'ReturnedHold',
   AWAITING_LOCATION: 'AwaitingLocation',
   SCRAPPED: 'Scrapped',
+  PENDING_AVAILABLE: 'PendingAvailable',
+  PENDING_SCRAP: 'PendingScrap',
 };
 const ROLL_ACTIVE_JOB = ['Planned', 'Allocated', 'Staged', 'Dispatched'];
+
+// Statuses a roll can be moved to directly. Job statuses are excluded because they
+// are derived from the allocation.
+const MANUAL_ROLL_STATUSES = [
+  ROLL_STATUS.AVAILABLE,
+  ROLL_STATUS.AWAITING_LOCATION,
+  ROLL_STATUS.PENDING_AVAILABLE,
+  ROLL_STATUS.PENDING_SCRAP,
+  ROLL_STATUS.RETURNED_HOLD,
+  ROLL_STATUS.CONSUMED,
+  ROLL_STATUS.SCRAPPED,
+];
+
+// Allocation statuses this assistant may create. 'Dispatched' is deliberately
+// excluded — shipping is a warehouse action that writes transactions.
+const ASSIGNABLE_ALLOCATION_STATUSES = [
+  ROLL_STATUS.PLANNED,
+  ROLL_STATUS.ALLOCATED,
+  ROLL_STATUS.STAGED,
+];
 
 function rollStatusFromAlloc(s: string) {
   if (s === 'Cancelled') return 'Available';
@@ -327,6 +349,13 @@ async function executeTool(
         };
       }
       const allocStatus = args.allocation_status || ROLL_STATUS.PLANNED;
+      // An unrecognised value makes rollStatusFromAlloc return null, which would
+      // wipe the roll's status and hide it from every status filter in the app.
+      if (!ASSIGNABLE_ALLOCATION_STATUSES.includes(allocStatus)) {
+        return {
+          error: `'${allocStatus}' is not an allocation status this tool can set. Allowed: ${ASSIGNABLE_ALLOCATION_STATUSES.join(', ')}.`,
+        };
+      }
       const alloc = await base44.entities.Allocation.create({
         job_id: job.id,
         job_name: job.job_name || job.job_number,
@@ -359,7 +388,11 @@ async function executeTool(
           a.status !== 'Cancelled' &&
           a.status !== 'Completed',
       );
-      if (active) await base44.entities.Allocation.delete(active.id);
+      // Cancel rather than delete: a dispatched allocation is the record of what
+      // actually left the yard, and the overage reports read it.
+      if (active) {
+        await base44.entities.Allocation.update(active.id, { status: 'Cancelled' });
+      }
       await base44.entities.Roll.update(roll.id, {
         status: ROLL_STATUS.AVAILABLE,
         allocated_job_id: null,
@@ -369,8 +402,44 @@ async function executeTool(
     }
 
     case 'update_roll_status': {
-      await base44.entities.Roll.update(args.roll_id, { status: args.status });
-      actionsTaken.push(`Set roll ${args.roll_id} status to ${args.status}`);
+      // The tool schema's enum is only a hint to the model, so the value has to be
+      // checked here before it reaches the roll.
+      if (!MANUAL_ROLL_STATUSES.includes(args.status)) {
+        return {
+          error: `'${args.status}' is not a status this tool can set. Allowed: ${MANUAL_ROLL_STATUSES.join(', ')}. Job statuses come from the allocation — use assign_roll_to_job instead.`,
+        };
+      }
+
+      const [roll] = await base44.entities.Roll.filter({ id: args.roll_id });
+      if (!roll) return { error: 'Roll not found' };
+
+      // Mirrors setRollStatusManually in src/lib/rollStatus.js: a roll committed to a
+      // job must be released through the job, otherwise it reads as free stock while
+      // an allocation still claims it.
+      const allAllocs = await base44.entities.Allocation.list('-created_date', 5000);
+      const active = allAllocs.find(
+        (a: any) =>
+          (a.allocated_roll_ids || []).includes(roll.id) &&
+          a.status !== 'Cancelled' &&
+          a.status !== 'Completed',
+      );
+      if (active && args.status === ROLL_STATUS.AVAILABLE) {
+        return {
+          error: `Roll is allocated to job ${active.job_name || active.job_id}. Release it from the job first.`,
+        };
+      }
+
+      await base44.entities.Roll.update(args.roll_id, {
+        status: args.status,
+        // Consumed/Scrapped keep the job reference so reports can show where the
+        // roll went; everything else is cleared.
+        ...(args.status === ROLL_STATUS.CONSUMED || args.status === ROLL_STATUS.SCRAPPED
+          ? {}
+          : { allocated_job_id: null }),
+      });
+      actionsTaken.push(
+        `Set roll ${roll.tt_sku_tag_number || roll.roll_tag || args.roll_id} status to ${args.status}`,
+      );
       return { ok: true };
     }
 
@@ -516,17 +585,14 @@ Deno.serve(async (req: Request) => {
         if (reply) {
           return Response.json({ reply, actionsTaken });
         }
-        // Empty reply — return the full upstream response so we can see why.
+        // Details stay in the server log: the raw upstream response carries model
+        // metadata and tool content that shouldn't be rendered into the chat.
         console.error('askAI: empty reply', JSON.stringify(response));
         return Response.json({
           reply:
-            '(model returned no text)\n' +
-            `stop_reason=${response.stop_reason ?? 'unknown'} ` +
-            `stop_sequence=${response.stop_sequence ?? 'none'} ` +
-            `content_blocks=${contentBlocks.length} ` +
-            `iter=${i + 1}`,
+            "I couldn't put together an answer for that. Try rephrasing it, " +
+            'or ask for one roll or job at a time.',
           actionsTaken,
-          debug: { raw: response },
         });
       }
 

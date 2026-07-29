@@ -6,7 +6,6 @@ import {
   LayoutDashboard, 
   Package, 
   Scissors, 
-  Truck, 
   ClipboardList,
   FileBox,
   RotateCcw,
@@ -15,13 +14,10 @@ import {
   X,
   LogOut,
   ChevronDown,
-  Building2,
   MapPin,
-  Users,
   FileSpreadsheet,
   FileBarChart,
   HelpCircle,
-  Search,
   Archive,
   Clock
 } from 'lucide-react';

@@ -58,9 +58,9 @@ import {
   createAllocationWithSync,
   updateAllocationStatusWithSync,
   deleteAllocationWithSync,
-  releaseRoll,
 } from '@/lib/rollStatus';
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { describeError } from '@/lib/query-client';
 
 export default function JobDetail() {
   const queryClient = useQueryClient();
@@ -106,16 +106,18 @@ export default function JobDetail() {
     queryFn: () => base44.entities.Product.filter({ status: 'active' }),
   });
 
+  // Explicit page size: an unbounded .list() only returns the SDK's default first
+  // page, which silently hid rolls from the Add Products and Receive Returns lists.
   const { data: allRolls = [] } = useQuery({
     queryKey: ['rolls'],
-    queryFn: () => base44.entities.Roll.list(),
+    queryFn: () => base44.entities.Roll.list('-created_date', 5000),
   });
 
-  const rolls = allRolls.filter(r => r.status === 'Available');
+  const rolls = allRolls.filter(r => r.status === ROLL_STATUS.AVAILABLE);
 
   const { data: inventoryItems = [] } = useQuery({
     queryKey: ['inventoryItems'],
-    queryFn: () => base44.entities.InventoryItem.list(),
+    queryFn: () => base44.entities.InventoryItem.list('-created_date', 1000),
   });
 
   const { data: returnTransactions = [] } = useQuery({
@@ -188,8 +190,16 @@ export default function JobDetail() {
 
   const deleteAllocationMutation = useMutation({
     mutationFn: async (allocationId) => {
-      // Find the full allocation object so we can release its rolls.
-      const allocation = allocations.find(a => a.id === allocationId);
+      // Find the full allocation object so we can release its rolls. Fall back to a
+      // fresh read rather than silently no-op'ing on a stale list.
+      let allocation = allocations.find(a => a.id === allocationId);
+      if (!allocation) {
+        const [fresh] = await base44.entities.Allocation.filter({ id: allocationId });
+        allocation = fresh;
+      }
+      if (!allocation) {
+        throw new Error('That allocation no longer exists. Refresh the page.');
+      }
       await deleteAllocationWithSync(allocation);
     },
     onSuccess: () => {
@@ -299,20 +309,66 @@ export default function JobDetail() {
   const receiveReturnsMutation = useMutation({
     mutationFn: async (returns) => {
       const user = await base44.auth.me();
-      
+
+      // Validate before touching anything — a blank length used to be sent
+      // straight to the API, which rejected it and left the dialog looking dead.
+      for (const returnItem of returns) {
+        if (returnItem.type === 'roll') {
+          const roll = allRolls.find(r => r.id === returnItem.id);
+          const tag = roll?.tt_sku_tag_number || roll?.roll_tag || 'this roll';
+          const isZeroLength =
+            returnItem.condition === 'Scrapped' || returnItem.condition === 'Consumed';
+          const len = parseFloat(returnItem.returned_length_ft);
+
+          if (!isZeroLength) {
+            if (!Number.isFinite(len) || len <= 0) {
+              throw new Error(
+                `${tag}: enter how many feet came back (or mark it Consumed / Scrapped).`,
+              );
+            }
+            if (roll && len > (roll.current_length_ft || 0) + 0.01) {
+              throw new Error(
+                `${tag}: ${formatFeetInches(len)} came back but only ${formatFeetInches(
+                  roll.current_length_ft,
+                )} went out.`,
+              );
+            }
+          }
+          if (
+            returnItem.has_existing_tag === 'new' &&
+            !(returnItem.new_tt_sku || '').trim()
+          ) {
+            throw new Error(`${tag}: enter the new TT SKU tag number.`);
+          }
+        } else if (returnItem.type === 'inventory_item') {
+          const qty = parseFloat(returnItem.returned_quantity);
+          if (!Number.isFinite(qty) || qty < 0) {
+            const item = inventoryItems.find(i => i.id === returnItem.id);
+            throw new Error(
+              `${item?.item_name || 'Item'}: enter a valid returned quantity.`,
+            );
+          }
+        }
+      }
+
       for (const returnItem of returns) {
         if (returnItem.type === 'roll') {
           const roll = allRolls.find(r => r.id === returnItem.id);
           if (roll) {
             // Determine final status
             let finalStatus;
-            let finalLength = returnItem.returned_length_ft;
-            
+            let finalLength = parseFloat(returnItem.returned_length_ft) || 0;
+
             if (returnItem.condition === 'Scrapped') {
-              finalStatus = 'Scrapped';
+              finalStatus = ROLL_STATUS.SCRAPPED;
               finalLength = 0; // Scrapped rolls have no length
+            } else if (returnItem.condition === 'Consumed') {
+              // Fully used on this job — keep it out of inventory but keep the
+              // job on the record so reports can show where it went.
+              finalStatus = ROLL_STATUS.CONSUMED;
+              finalLength = 0;
             } else if (returnItem.condition === 'Damaged') {
-              finalStatus = 'ReturnedHold';
+              finalStatus = ROLL_STATUS.RETURNED_HOLD;
             } else {
               // Check if required fields are missing
               const hasLocation = returnItem.location_id && returnItem.location_id.trim() !== '';
@@ -320,12 +376,12 @@ export default function JobDetail() {
               const hasCondition = returnItem.condition && returnItem.condition.trim() !== '';
               
               if (!hasLocation || !hasTag || !hasCondition) {
-                finalStatus = 'AwaitingLocation';
+                finalStatus = ROLL_STATUS.AWAITING_LOCATION;
               } else {
-                finalStatus = 'Available';
+                finalStatus = ROLL_STATUS.AVAILABLE;
               }
             }
-            
+
             const finalTTSKU = returnItem.has_existing_tag === 'new' ? returnItem.new_tt_sku : (roll.tt_sku_tag_number || roll.roll_tag);
 
             // Build transaction notes
@@ -340,16 +396,21 @@ export default function JobDetail() {
               transactionNotes += ` - Location: ${returnItem.location_name}`;
             }
 
-            // Update roll status, length, tag, location, and condition
+            // Consumed/Scrapped rolls keep their job reference so reports can show
+            // where they went; everything else is released back off the job.
+            const keepsJobReference =
+              finalStatus === ROLL_STATUS.CONSUMED || finalStatus === ROLL_STATUS.SCRAPPED;
+
             await base44.entities.Roll.update(returnItem.id, {
               status: finalStatus,
               current_length_ft: finalLength,
               tt_sku_tag_number: finalTTSKU || roll.tt_sku_tag_number,
               condition: returnItem.condition || roll.condition || 'New',
               location_id: returnItem.location_id || roll.location_id,
-              location_name: returnItem.location_name || roll.location_name
+              location_name: returnItem.location_name || roll.location_name,
+              allocated_job_id: keepsJobReference ? roll.allocated_job_id || jobId : null,
             });
-            
+
             // Create transaction
             await base44.entities.Transaction.create({
               transaction_type: 'ReturnFromJob',
@@ -361,9 +422,9 @@ export default function JobDetail() {
               product_name: roll.product_name,
               dye_lot: roll.dye_lot,
               width_ft: roll.width_ft,
-              length_change_ft: returnItem.returned_length_ft,
+              length_change_ft: finalLength,
               length_before_ft: 0,
-              length_after_ft: returnItem.returned_length_ft,
+              length_after_ft: finalLength,
               performed_by: user.full_name || user.email,
               notes: transactionNotes
             });
@@ -371,9 +432,10 @@ export default function JobDetail() {
         } else if (returnItem.type === 'inventory_item') {
           const inventoryItem = inventoryItems.find(i => i.id === returnItem.id);
           if (inventoryItem) {
+            const returnedQty = parseFloat(returnItem.returned_quantity) || 0;
             const shouldAddToInventory = inventoryItem.partial_return_type !== 'full_unit_only' || returnItem.is_unopened;
-            const quantityToAdd = shouldAddToInventory ? returnItem.returned_quantity : 0;
-            
+            const quantityToAdd = shouldAddToInventory ? returnedQty : 0;
+
             // Increment inventory quantity (only if should add)
             if (quantityToAdd > 0) {
               await base44.entities.InventoryItem.update(returnItem.id, {
@@ -389,19 +451,42 @@ export default function JobDetail() {
               job_number: job.job_number,
               product_name: inventoryItem.item_name,
               performed_by: user.full_name || user.email,
-              notes: shouldAddToInventory 
-                ? `Returned ${returnItem.returned_quantity} ${inventoryItem.unit_of_measure} from job ${job.job_number} - Added to inventory`
-                : `Returned ${returnItem.returned_quantity} ${inventoryItem.unit_of_measure} from job ${job.job_number} - Used/Opened, not added to inventory`
+              notes: shouldAddToInventory
+                ? `Returned ${returnedQty} ${inventoryItem.unit_of_measure} from job ${job.job_number} - Added to inventory`
+                : `Returned ${returnedQty} ${inventoryItem.unit_of_measure} from job ${job.job_number} - Used/Opened, not added to inventory`
             });
           }
         }
       }
-      
-      // Update job status to Completed
-      await base44.entities.Job.update(jobId, { status: 'Completed' });
+
+      // Close out any allocation whose every line has now been received, so those
+      // rolls stop showing up as still out on the job.
+      const processedIds = new Set(returns.map(r => r.id));
+      for (const allocation of returnableAllocations) {
+        const lineIds =
+          allocation.item_type === 'roll'
+            ? allocation.allocated_roll_ids || []
+            : [allocation.item_id];
+        const allReceived = lineIds.length > 0 && lineIds.every(id => processedIds.has(id));
+        if (allReceived) {
+          await base44.entities.Allocation.update(allocation.id, {
+            status: ALLOCATION_STATUS.COMPLETED,
+          });
+        }
+      }
+
+      // Receiving returns does NOT complete the job — per the warehouse SOP a job
+      // is "fulfilled" when it leaves the yard and "complete" when the crew is done.
+      // Park it in Awaiting Return Inventory so Complete Job stays available and
+      // more returns can still be received.
+      if (job.status !== 'Completed') {
+        await base44.entities.Job.update(jobId, { status: 'AwaitingReturnInventory' });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['allocations'] });
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
       queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
       queryClient.invalidateQueries({ queryKey: ['returnTransactions', jobId] });
@@ -409,24 +494,43 @@ export default function JobDetail() {
       setShowReceiveReturns(false);
       setReturnItems([]);
       setReturnInventoryItems([]);
-      toast.success('Returns processed successfully');
-    }
+      toast.success('Returns processed. Click Complete Job when the crew is finished.');
+    },
+    onError: (error) => {
+      console.error('[Receive returns] failed:', error);
+      toast.error(describeError(error));
+    },
   });
 
   const dispatchJobMutation = useMutation({
     mutationFn: async () => {
       const user = await base44.auth.me();
-      
-      // Update job status to Dispatched
+
+      // Only live allocations get fulfilled. Sweeping Cancelled/Completed ones back
+      // to Dispatched used to resurrect released rolls onto the job.
+      const toDispatch = allocations.filter(
+        a =>
+          a.status !== ALLOCATION_STATUS.CANCELLED &&
+          a.status !== ALLOCATION_STATUS.COMPLETED &&
+          a.status !== ALLOCATION_STATUS.DISPATCHED,
+      );
+
+      if (toDispatch.length === 0) {
+        throw new Error(
+          'Nothing on this job is ready to fulfil. Add products to the job first.',
+        );
+      }
+
       await base44.entities.Job.update(jobId, { status: 'Dispatched' });
 
-      // Process each allocation
-      for (const allocation of allocations) {
+      for (const allocation of toDispatch) {
         if (allocation.item_type === 'roll' && allocation.allocated_roll_ids?.length > 0) {
           for (const rollId of allocation.allocated_roll_ids) {
-            // Update roll status
-            await base44.entities.Roll.update(rollId, { status: 'Dispatched' });
-            
+            await base44.entities.Roll.update(rollId, {
+              status: ROLL_STATUS.DISPATCHED,
+              allocated_job_id: jobId,
+            });
+
             // Create transaction
             const roll = allRolls.find(r => r.id === rollId);
             if (roll) {
@@ -452,10 +556,12 @@ export default function JobDetail() {
           // Decrement inventory item quantity
           const inventoryItem = inventoryItems.find(i => i.id === allocation.item_id);
           if (inventoryItem) {
+            // Clamp at zero — going negative silently corrupted the on-hand count.
+            const shipped = parseFloat(allocation.requested_quantity) || 1;
             await base44.entities.InventoryItem.update(allocation.item_id, {
-              quantity_on_hand: inventoryItem.quantity_on_hand - (allocation.requested_quantity || 1)
+              quantity_on_hand: Math.max(0, (inventoryItem.quantity_on_hand || 0) - shipped)
             });
-            
+
             // Create transaction
             await base44.entities.Transaction.create({
               transaction_type: 'SendOutToJob',
@@ -469,8 +575,9 @@ export default function JobDetail() {
           }
         }
         
-        // Update allocation status
-        await base44.entities.Allocation.update(allocation.id, { status: 'Dispatched' });
+        await base44.entities.Allocation.update(allocation.id, {
+          status: ALLOCATION_STATUS.DISPATCHED,
+        });
       }
     },
     onSuccess: () => {
@@ -482,7 +589,7 @@ export default function JobDetail() {
     },
     onError: (error) => {
       console.error('[Dispatch] failed:', error);
-      toast.error(`Failed to mark as fulfilled: ${error?.message || 'unknown error'}`);
+      toast.error(`Couldn't mark as fulfilled: ${describeError(error)}`);
     }
   });
 
@@ -570,17 +677,21 @@ export default function JobDetail() {
   const totalUsed = totalAllocatedSentOut - totalReturned;
   const turfVariance = totalUsed - (job.requested_total_turf_length_ft || 0);
 
-  // Get all allocated roll IDs for returns
-  const allocatedRollIds = allocations
-    .filter(a => a.item_type === 'roll' && a.status === 'Dispatched')
-    .flatMap(a => a.allocated_roll_ids || []);
-  
-  // Filter rolls to include those allocated to this job (regardless of status)
-  const availableRollsForReturn = allRolls.filter(r => allocatedRollIds.includes(r.id));
+  // Anything still live on the job can come back. Previously this only accepted
+  // allocations at exactly 'Dispatched', so a job whose allocations sat at
+  // Allocated or Staged showed "No items were sent out for this job" and the
+  // returns could never be received.
+  const returnableAllocations = allocations.filter(
+    a =>
+      a.status !== ALLOCATION_STATUS.CANCELLED &&
+      a.status !== ALLOCATION_STATUS.COMPLETED,
+  );
 
-  // Check if there are any allocations still in Planned state (Office forecasts, not yet warehouse-committed)
-  const hasRequestedAllocations = allocations.some(a => a.status === 'Planned');
-  const requestedAllocations = allocations.filter(a => a.status === 'Planned');
+  const allocatedRollIds = returnableAllocations
+    .filter(a => a.item_type === 'roll')
+    .flatMap(a => a.allocated_roll_ids || []);
+
+  const availableRollsForReturn = allRolls.filter(r => allocatedRollIds.includes(r.id));
 
   return (
     <div className="space-y-6">
@@ -621,15 +732,18 @@ export default function JobDetail() {
               Mark as Fulfilled
             </Button>
           )}
-          {job.status === 'Dispatched' && job.fulfillment_for === 'TexasTurf' && (
-            <Button 
+          {/* Returns are receivable for every owner, and stay receivable after the
+              job moves to Awaiting Return Inventory — previously TurfCasa jobs had
+              no returns path at all and the button vanished after the first batch. */}
+          {(job.status === 'Dispatched' || job.status === 'AwaitingReturnInventory') && (
+            <Button
               onClick={() => setShowReceiveReturns(true)}
               className="bg-amber-600 hover:bg-amber-700"
             >
               Receive Returns
             </Button>
           )}
-          {((job.status === 'Dispatched' && job.fulfillment_for === 'TurfCasa') || job.status === 'AwaitingReturnInventory') && (
+          {(job.status === 'Dispatched' || job.status === 'AwaitingReturnInventory') && (
             <>
               {job.status === 'AwaitingReturnInventory' && (
                 <div className="flex gap-2 items-center">
@@ -1092,8 +1206,18 @@ export default function JobDetail() {
                                 key={rid}
                                 to={createPageUrl('RollDetail') + `?id=${rid}`}
                                 className="bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded"
+                                title={
+                                  r?.manufacturer_roll_number
+                                    ? `Manufacturer roll # ${r.manufacturer_roll_number}`
+                                    : undefined
+                                }
                               >
                                 {tag}
+                                {r?.manufacturer_roll_number && (
+                                  <span className="ml-1 text-slate-400">
+                                    / {r.manufacturer_roll_number}
+                                  </span>
+                                )}
                               </Link>
                             );
                           })}
@@ -1147,11 +1271,27 @@ export default function JobDetail() {
                             <RefreshCw className="h-4 w-4" />
                           </Button>
                         )}
-                        <Button 
-                          variant="ghost" 
+                        {/* Removable at any stage. This used to be disabled unless the
+                            job was still a Draft, which is why the trash icon looked
+                            like a dead button on every live job. */}
+                        <Button
+                          variant="ghost"
                           size="sm"
-                          onClick={() => deleteAllocationMutation.mutate(allocation.id)}
-                          disabled={deleteAllocationMutation.isPending || job.status !== 'Draft'}
+                          title="Remove from job and release the roll back to inventory"
+                          onClick={() => {
+                            const shipped =
+                              allocation.status === ALLOCATION_STATUS.DISPATCHED;
+                            if (
+                              shipped &&
+                              !window.confirm(
+                                `${allocation.product_name} is already marked fulfilled. Remove it from this job and put it back in inventory as Available?`,
+                              )
+                            ) {
+                              return;
+                            }
+                            deleteAllocationMutation.mutate(allocation.id);
+                          }}
+                          disabled={deleteAllocationMutation.isPending}
                           className="text-red-500 hover:text-red-700"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -1178,12 +1318,13 @@ export default function JobDetail() {
             </p>
             
             <div className="border rounded-lg max-h-96 overflow-y-auto">
-              {allocations.filter(a => a.status === 'Dispatched').length === 0 ? (
+              {returnableAllocations.length === 0 ? (
                 <div className="p-8 text-center text-slate-500">
-                  No items were sent out for this job
+                  Nothing is currently allocated to this job, so there's nothing to
+                  receive back. If a roll came back anyway, use the link below.
                 </div>
               ) : (
-                allocations.filter(a => a.status === 'Dispatched').map(allocation => {
+                returnableAllocations.map(allocation => {
                   if (allocation.item_type === 'inventory_item') {
                     const item = inventoryItems.find(i => i.id === allocation.item_id);
                     if (!item) return null;
@@ -1340,11 +1481,17 @@ export default function JobDetail() {
                                      setReturnItems(prev => prev.map(r => 
                                        r.id === rollId 
                                          ? { 
-                                             ...r, 
+                                             ...r,
                                              condition: v,
-                                             // Scrapped never needs a new tag
-                                             has_existing_tag: v === 'Scrapped' ? 'existing' : r.has_existing_tag,
-                                             new_tt_sku: v === 'Scrapped' ? '' : r.new_tt_sku,
+                                             // Nothing re-enters inventory, so no new tag is needed
+                                             has_existing_tag:
+                                               v === 'Scrapped' || v === 'Consumed'
+                                                 ? 'existing'
+                                                 : r.has_existing_tag,
+                                             new_tt_sku:
+                                               v === 'Scrapped' || v === 'Consumed'
+                                                 ? ''
+                                                 : r.new_tt_sku,
                                            }
                                          : r
                                      ));
@@ -1354,15 +1501,17 @@ export default function JobDetail() {
                                      <SelectValue />
                                    </SelectTrigger>
                                    <SelectContent>
-                                     <SelectItem value="New">New - Add back to inventory</SelectItem>
-                                     <SelectItem value="Damaged">Damaged - Hold for review</SelectItem>
-                                     <SelectItem value="Scrapped">Scrapped - Do not add to inventory</SelectItem>
+                                     <SelectItem value="New">New — add back to inventory</SelectItem>
+                                     <SelectItem value="Damaged">Damaged — hold for review</SelectItem>
+                                     <SelectItem value="Consumed">Consumed — fully used on this job</SelectItem>
+                                     <SelectItem value="Scrapped">Scrapped — written off, do not add to inventory</SelectItem>
                                    </SelectContent>
                                  </Select>
                                 </div>
 
-                                {/* 2. Tag question — only for New / Damaged */}
-                                {returnItem.condition !== 'Scrapped' && (
+                                {/* 2. Tag question — only for rolls that re-enter inventory */}
+                                {returnItem.condition !== 'Scrapped' &&
+                                  returnItem.condition !== 'Consumed' && (
                                   <>
                                     <div>
                                      <Label className="text-xs font-semibold">Does this roll have a tag?</Label>
@@ -1406,25 +1555,35 @@ export default function JobDetail() {
                                   </>
                                 )}
 
-                                {/* 3. Dimensions — returned length always, scrapped width only when Scrapped */}
-                                <div>
-                                  <Label className="text-xs font-semibold">Returned Length (ft) *</Label>
-                                  <Input
-                                    type="number"
-                                    step="0.1"
-                                    value={returnItem.returned_length_ft}
-                                    onChange={(e) => {
-                                     const value = e.target.value === '' ? '' : parseFloat(e.target.value);
-                                     setReturnItems(prev => prev.map(r => 
-                                       r.id === rollId 
-                                         ? { ...r, returned_length_ft: value }
-                                         : r
-                                     ));
-                                    }}
-                                    placeholder="0"
-                                    className="mt-1"
-                                  />
-                                </div>
+                                {/* 3. Dimensions. Consumed/Scrapped rolls come back at
+                                       zero length, so the field would only confuse. */}
+                                {returnItem.condition !== 'Scrapped' &&
+                                  returnItem.condition !== 'Consumed' && (
+                                  <div>
+                                    <Label className="text-xs font-semibold">Returned Length (ft) *</Label>
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      max={roll.current_length_ft || undefined}
+                                      value={returnItem.returned_length_ft}
+                                      onChange={(e) => {
+                                       const value = e.target.value === '' ? '' : parseFloat(e.target.value);
+                                       setReturnItems(prev => prev.map(r =>
+                                         r.id === rollId
+                                           ? { ...r, returned_length_ft: value }
+                                           : r
+                                       ));
+                                      }}
+                                      placeholder="0"
+                                      className="mt-1"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                      Went out at {formatFeetInches(roll.current_length_ft)}.
+                                      Enter how much came back.
+                                    </p>
+                                  </div>
+                                )}
 
                                 {returnItem.condition === 'Scrapped' && (
                                   <div>
@@ -1517,7 +1676,7 @@ export default function JobDetail() {
                 }}
                 className="text-sm text-slate-500 hover:text-slate-800 underline"
               >
-                A roll came back, but it's not from this job
+                Receive an unidentified roll (unknown or different job)
               </button>
             </div>
           </div>

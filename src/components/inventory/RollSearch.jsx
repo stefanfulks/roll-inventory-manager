@@ -4,14 +4,14 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from "@/lib/utils";
 
-export default function RollSearch({ 
-  onSearch, 
-  onScan,
+export default function RollSearch({
+  onSearch,
   placeholder = "Add roll tag SKU...",
   autoFocus = false,
+  initialValue = '',
   className
 }) {
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(initialValue);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -20,22 +20,15 @@ export default function RollSearch({
     }
   }, [autoFocus]);
 
+  // Empty submits must reach onSearch, otherwise the filter can never be cleared.
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (value.trim()) {
-      onSearch(value.trim());
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    // Barcode scanners typically send Enter after scanning
-    if (e.key === 'Enter' && value.trim()) {
-      onSearch(value.trim());
-    }
+    onSearch(value.trim());
   };
 
   const handleClear = () => {
     setValue('');
+    onSearch('');
     inputRef.current?.focus();
   };
 
@@ -48,7 +41,6 @@ export default function RollSearch({
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           className="pl-12 pr-20 h-12 text-base rounded-xl border-slate-200 focus:border-emerald-500 focus:ring-emerald-500"
         />

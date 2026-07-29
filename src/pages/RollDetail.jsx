@@ -1,20 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { 
-  ArrowLeft, 
-  Scissors, 
-  Package, 
-  MapPin, 
-  Calendar,
-  Hash,
-  Ruler,
-  FileText,
-  Clock,
+import {
+  ArrowLeft,
+  Scissors,
   Briefcase,
-  RotateCcw
+  RotateCcw,
+  Pencil
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,6 +27,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -47,7 +43,11 @@ import {
   setRollStatusManually,
   findActiveAllocationForRoll,
 } from '@/lib/rollStatus';
-import { formatFeetInches } from '@/lib/dateHelpers';
+import { formatFeetInches, parseLocalDate } from '@/lib/dateHelpers';
+import { describeError } from '@/lib/query-client';
+
+const ROLL_CONDITION_OPTIONS = ['New', 'Good', 'Used', 'Damaged', 'Scrap'];
+const ROLL_TYPE_OPTIONS = ['Parent', 'Child'];
 
 export default function RollDetail() {
   const queryClient = useQueryClient();
@@ -56,9 +56,11 @@ export default function RollDetail() {
   const [showPlanDialog, setShowPlanDialog] = useState(false);
   const [showAllocateDialog, setShowAllocateDialog] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState('');
-  const [actionType, setActionType] = useState(''); // 'plan' or 'allocate'
   const [showStatusEditor, setShowStatusEditor] = useState(false);
   const [newStatusValue, setNewStatusValue] = useState('');
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editForm, setEditForm] = useState(null);
+  const [parentSearch, setParentSearch] = useState('');
 
   const { data: roll, isLoading } = useQuery({
     queryKey: ['roll', rollId],
@@ -74,39 +76,6 @@ export default function RollDetail() {
   });
 
   const mostRecentTxId = transactions[0]?.id;
-
-  const undoTransactionMutation = useMutation({
-    mutationFn: async (tx) => {
-      if (tx.length_before_ft == null) throw new Error('No previous length recorded for this transaction');
-      await base44.entities.Roll.update(rollId, {
-        current_length_ft: tx.length_before_ft,
-        status: 'Available',
-      });
-      await base44.entities.Transaction.update(tx.id, {
-        notes: `[REVERSED] ${tx.notes || ''}`,
-        transaction_type: 'Reversed_' + tx.transaction_type,
-      });
-      await base44.entities.Transaction.create({
-        transaction_type: 'Reversal',
-        roll_id: rollId,
-        tt_sku_tag_number: tx.tt_sku_tag_number || roll?.tt_sku_tag_number,
-        product_name: tx.product_name,
-        dye_lot: tx.dye_lot,
-        width_ft: tx.width_ft,
-        length_change_ft: (tx.length_before_ft || 0) - (tx.length_after_ft || 0),
-        length_before_ft: tx.length_after_ft,
-        length_after_ft: tx.length_before_ft,
-        notes: `Reversed: ${tx.transaction_type}`,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['roll', rollId] });
-      queryClient.invalidateQueries({ queryKey: ['transactions', rollId] });
-      queryClient.invalidateQueries({ queryKey: ['rolls'] });
-      toast.success('Transaction reversed');
-    },
-    onError: (err) => toast.error(err.message || 'Failed to reverse transaction'),
-  });
 
   const { data: childRolls = [] } = useQuery({
     queryKey: ['childRolls', rollId],
@@ -133,6 +102,38 @@ export default function RollDetail() {
     queryKey: ['allocations'],
     queryFn: () => base44.entities.Allocation.list(),
   });
+
+  // Must stay above the early returns below so hook order never changes.
+  const activeAllocation = useMemo(
+    () => (roll?.id ? findActiveAllocationForRoll(roll.id, allAllocations) : null),
+    [roll?.id, allAllocations]
+  );
+
+  const { data: products = [] } = useQuery({
+    queryKey: ['products', 'all'],
+    queryFn: () => base44.entities.Product.list('-created_date', 500),
+    enabled: showEditDialog,
+  });
+
+  const { data: parentCandidates = [] } = useQuery({
+    queryKey: ['rolls', 'parentPicker'],
+    queryFn: () => base44.entities.Roll.list('-created_date', 1000),
+    enabled: showEditDialog && editForm?.roll_type === 'Child',
+  });
+
+  const parentMatches = useMemo(() => {
+    const term = parentSearch.trim().toLowerCase();
+    if (!term) return [];
+    return parentCandidates
+      .filter(r =>
+        r.id !== rollId &&
+        r.parent_roll_id !== rollId &&
+        (r.tt_sku_tag_number?.toLowerCase().includes(term) ||
+          r.roll_tag?.toLowerCase().includes(term) ||
+          r.manufacturer_roll_number?.toLowerCase().includes(term))
+      )
+      .slice(0, 8);
+  }, [parentSearch, parentCandidates, rollId]);
 
   const planForJobMutation = useMutation({
     mutationFn: async (jobId) => {
@@ -263,7 +264,151 @@ export default function RollDetail() {
     },
   });
 
+  const undoTransactionMutation = useMutation({
+    mutationFn: async (tx) => {
+      if (tx.length_before_ft == null) throw new Error('No previous length recorded for this transaction');
+      if (activeAllocation) {
+        throw new Error(
+          'This roll is committed to a job. Release it from the job (cancel or delete the allocation) before undoing this transaction.'
+        );
+      }
 
+      // A cut's child roll is a separate Roll record; leaving it behind would
+      // double-count its footage once the parent's length is restored.
+      let childRoll = null;
+      if (tx.child_roll_id) {
+        const found = await base44.entities.Roll.filter({ id: tx.child_roll_id });
+        childRoll = found[0] || null;
+        if (childRoll) {
+          const childLabel = childRoll.tt_sku_tag_number || childRoll.roll_tag || tx.child_roll_id;
+          if (findActiveAllocationForRoll(childRoll.id, allAllocations) || childRoll.allocated_job_id ||
+              ROLL_ACTIVE_JOB_STATUSES.includes(childRoll.status)) {
+            throw new Error(`Child roll ${childLabel} is already committed to a job. Release it first, then undo this cut.`);
+          }
+          if (childRoll.status === ROLL_STATUS.CONSUMED || childRoll.status === ROLL_STATUS.SCRAPPED) {
+            throw new Error(`Child roll ${childLabel} is ${childRoll.status}. It can't be removed, so this cut can't be undone.`);
+          }
+          const grandChildren = await base44.entities.Roll.filter({ parent_roll_id: childRoll.id });
+          if (grandChildren.length > 0) {
+            throw new Error(`Child roll ${childLabel} has itself been cut. Undo those cuts first.`);
+          }
+          const childCurrent = Number(childRoll.current_length_ft);
+          const childOriginal = Number(childRoll.original_length_ft);
+          if (Number.isFinite(childCurrent) && Number.isFinite(childOriginal) && childCurrent !== childOriginal) {
+            throw new Error(`Child roll ${childLabel} is no longer its original length, so this cut can't be undone.`);
+          }
+        }
+      }
+
+      const user = await base44.auth.me();
+
+      await base44.entities.Roll.update(rollId, {
+        current_length_ft: tx.length_before_ft,
+      });
+      if (childRoll) {
+        await base44.entities.Roll.delete(childRoll.id);
+      }
+      const statusResult = await setRollStatusManually(roll, ROLL_STATUS.AVAILABLE, allAllocations);
+      if (!statusResult.ok) throw new Error(statusResult.error);
+
+      await base44.entities.Transaction.update(tx.id, {
+        notes: `[REVERSED] ${tx.notes || ''}`,
+        transaction_type: 'Reversed_' + tx.transaction_type,
+      });
+      await base44.entities.Transaction.create({
+        transaction_type: 'Reversal',
+        roll_id: rollId,
+        tt_sku_tag_number: tx.tt_sku_tag_number || roll?.tt_sku_tag_number,
+        product_name: tx.product_name,
+        dye_lot: tx.dye_lot,
+        width_ft: tx.width_ft,
+        length_change_ft: (tx.length_before_ft || 0) - (tx.length_after_ft || 0),
+        length_before_ft: tx.length_after_ft,
+        length_after_ft: tx.length_before_ft,
+        performed_by: user.full_name || user.email,
+        notes: childRoll
+          ? `Reversed: ${tx.transaction_type}. Removed child roll ${childRoll.tt_sku_tag_number || childRoll.roll_tag}.`
+          : `Reversed: ${tx.transaction_type}`,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roll', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['transactions', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['childRolls', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      queryClient.invalidateQueries({ queryKey: ['allocations'] });
+      toast.success('Transaction reversed');
+    },
+    onError: (err) => toast.error(describeError(err)),
+  });
+
+  const editRollMutation = useMutation({
+    mutationFn: async (form) => {
+      const width = Number(form.width_ft);
+      const currentLength = Number(form.current_length_ft);
+      const originalLength = Number(form.original_length_ft);
+
+      if (!form.product_id) throw new Error('Pick a product.');
+      if (!Number.isFinite(width) || width <= 0) throw new Error('Width must be a number greater than zero.');
+      if (!Number.isFinite(currentLength) || currentLength <= 0) {
+        throw new Error('Current length must be a number greater than zero.');
+      }
+      if (!Number.isFinite(originalLength) || originalLength <= 0) {
+        throw new Error('Original length must be a number greater than zero.');
+      }
+      if (form.roll_type === 'Child' && !form.parent_roll_id) {
+        throw new Error('A child roll needs a parent roll. Pick one, or set the type back to Parent.');
+      }
+
+      const user = await base44.auth.me();
+      const isChild = form.roll_type === 'Child';
+
+      await base44.entities.Roll.update(rollId, {
+        product_id: form.product_id,
+        product_name: form.product_name,
+        manufacturer_roll_number: form.manufacturer_roll_number || null,
+        dye_lot: form.dye_lot || null,
+        width_ft: width,
+        current_length_ft: currentLength,
+        original_length_ft: originalLength,
+        condition: form.condition,
+        roll_type: form.roll_type,
+        notes: form.notes || null,
+        // Both link fields have to be rewritten together — a Parent that keeps a
+        // parent_roll_id still shows up as somebody's child roll.
+        parent_roll_id: isChild ? form.parent_roll_id : null,
+        parent_tt_sku_tag_number: isChild ? (form.parent_tt_sku_tag_number || null) : null,
+      });
+
+      const rawBefore = Number(roll.current_length_ft);
+      const lengthBefore = Number.isFinite(rawBefore) ? rawBefore : null;
+      if (lengthBefore !== currentLength) {
+        await base44.entities.Transaction.create({
+          transaction_type: 'Adjustment',
+          roll_id: rollId,
+          roll_tag: roll.roll_tag,
+          tt_sku_tag_number: roll.tt_sku_tag_number || roll.roll_tag,
+          product_name: form.product_name,
+          dye_lot: form.dye_lot || null,
+          width_ft: width,
+          length_before_ft: lengthBefore,
+          length_after_ft: currentLength,
+          length_change_ft: lengthBefore == null ? null : currentLength - lengthBefore,
+          performed_by: user.full_name || user.email,
+          notes: 'Manual correction of roll details — length edited by hand, not by a cut, job, or return.',
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roll', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['transactions', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['childRolls', rollId] });
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      setShowEditDialog(false);
+      toast.success('Roll updated');
+    },
+    onError: (err) => toast.error(describeError(err)),
+  });
 
   if (isLoading) {
     return (
@@ -285,7 +430,52 @@ export default function RollDetail() {
     );
   }
 
-  const sqft = roll.current_length_ft * roll.width_ft;
+  const sqft = Number(roll.current_length_ft) * Number(roll.width_ft);
+  const sqftLabel = Number.isFinite(sqft) ? `${Math.round(sqft).toLocaleString()} sq ft` : '—';
+  const statusOptions = activeAllocation ? ROLL_STATUS_OPTIONS : MANUAL_ROLL_STATUS_OPTIONS;
+
+  const formatLengthChange = (change) => {
+    const n = Number(change);
+    if (!Number.isFinite(n)) return '';
+    const sign = n > 0 ? '+' : n < 0 ? '-' : '';
+    return `${sign}${formatFeetInches(Math.abs(n))}`;
+  };
+
+  const undoConfirmMessage = (tx) => {
+    const lines = [
+      `Undo this ${tx.transaction_type}?`,
+      `• Roll length goes back to ${formatFeetInches(tx.length_before_ft)} (from ${formatFeetInches(tx.length_after_ft)}).`,
+      '• Roll status is set back to Available and any job link is cleared.',
+    ];
+    if (tx.child_roll_id) {
+      const child = childRolls.find(c => c.id === tx.child_roll_id);
+      const childLabel = child ? (child.tt_sku_tag_number || child.roll_tag) : 'the roll this cut created';
+      lines.push(`• Child roll ${childLabel} is permanently deleted.`);
+    }
+    lines.push('', 'This reversal is recorded in the transaction history.');
+    return lines.join('\n');
+  };
+
+  const openEditDialog = () => {
+    setEditForm({
+      product_id: roll.product_id || '',
+      product_name: roll.product_name || '',
+      manufacturer_roll_number: roll.manufacturer_roll_number || '',
+      dye_lot: roll.dye_lot || '',
+      width_ft: roll.width_ft ?? '',
+      current_length_ft: roll.current_length_ft ?? '',
+      original_length_ft: roll.original_length_ft ?? '',
+      condition: roll.condition || 'New',
+      roll_type: roll.roll_type || 'Parent',
+      parent_roll_id: roll.parent_roll_id || '',
+      parent_tt_sku_tag_number: roll.parent_tt_sku_tag_number || '',
+      notes: roll.notes || '',
+    });
+    setParentSearch('');
+    setShowEditDialog(true);
+  };
+
+  const patchEditForm = (patch) => setEditForm(f => ({ ...f, ...patch }));
 
   return (
     <div className="space-y-6">
@@ -309,6 +499,10 @@ export default function RollDetail() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={openEditDialog}>
+            <Pencil className="h-4 w-4 mr-2" />
+            Edit Roll
+          </Button>
           <Button
             variant="outline"
             onClick={() => {
@@ -318,24 +512,18 @@ export default function RollDetail() {
           >
             Edit Status
           </Button>
-          {roll.status === ROLL_STATUS.AVAILABLE && roll.current_length_ft > 0 && (
+          {roll.status === ROLL_STATUS.AVAILABLE && roll.current_length_ft > 0 && !activeAllocation && (
             <>
-              <Button 
-                onClick={() => {
-                  setActionType('plan');
-                  setShowPlanDialog(true);
-                }}
+              <Button
+                onClick={() => setShowPlanDialog(true)}
                 variant="outline"
                 className="border-purple-600 text-purple-600 hover:bg-purple-50"
               >
                 <Briefcase className="h-4 w-4 mr-2" />
                 Plan for Job
               </Button>
-              <Button 
-                onClick={() => {
-                  setActionType('allocate');
-                  setShowAllocateDialog(true);
-                }}
+              <Button
+                onClick={() => setShowAllocateDialog(true)}
                 variant="outline"
                 className="border-yellow-600 text-yellow-600 hover:bg-yellow-50"
               >
@@ -374,11 +562,15 @@ export default function RollDetail() {
             <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-6">
               <div>
                 <p className="text-sm text-slate-500 mb-1">Vendor</p>
-                <p className="font-medium text-slate-800">{roll.vendor_name || '-'}</p>
+                <p className="font-medium text-slate-800">{roll.vendor_name || roll.vendor || '-'}</p>
               </div>
               <div>
                 <p className="text-sm text-slate-500 mb-1">Product</p>
                 <p className="font-medium text-slate-800">{roll.product_name}</p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-500 mb-1">Manufacturer Roll #</p>
+                <p className="font-medium text-slate-800">{roll.manufacturer_roll_number || '-'}</p>
               </div>
               <div>
                 <p className="text-sm text-slate-500 mb-1">Dye Lot</p>
@@ -398,7 +590,7 @@ export default function RollDetail() {
               </div>
               <div>
                 <p className="text-sm text-slate-500 mb-1">Current Sq Ft</p>
-                <p className="font-medium text-slate-800">{sqft.toLocaleString()} sq ft</p>
+                <p className="font-medium text-slate-800">{sqftLabel}</p>
               </div>
               <div>
                 <p className="text-sm text-slate-500 mb-1">Location</p>
@@ -414,9 +606,9 @@ export default function RollDetail() {
                   <p className="font-mono text-slate-800">{roll.custom_roll_sku}</p>
                 </div>
               )}
-              {roll.vendor && (
+              {roll.vendor && roll.vendor !== roll.vendor_name && (
                 <div>
-                  <p className="text-sm text-slate-500 mb-1">Vendor</p>
+                  <p className="text-sm text-slate-500 mb-1">Vendor (as entered)</p>
                   <p className="font-medium text-slate-800">{roll.vendor}</p>
                 </div>
               )}
@@ -426,11 +618,11 @@ export default function RollDetail() {
                   <p className="font-medium text-slate-800">{roll.purchase_order}</p>
                 </div>
               )}
-              {roll.date_received && (
+              {parseLocalDate(roll.date_received) && (
                 <div>
                   <p className="text-sm text-slate-500 mb-1">Date Received</p>
                   <p className="font-medium text-slate-800">
-                    {format(new Date(roll.date_received), 'MMM d, yyyy')}
+                    {format(parseLocalDate(roll.date_received), 'MMM d, yyyy')}
                   </p>
                 </div>
               )}
@@ -549,6 +741,7 @@ export default function RollDetail() {
                       tx.length_before_ft != null &&
                       !tx.transaction_type?.startsWith('Reversed_') &&
                       tx.transaction_type !== 'Reversal';
+                    const lengthChangeLabel = formatLengthChange(tx.length_change_ft);
                     return (
                       <div key={tx.id} className={`flex gap-3 ${tx.transaction_type?.startsWith('Reversed_') || tx.transaction_type === 'Reversal' ? 'opacity-50' : ''}`}>
                         <div className="w-2 h-2 bg-emerald-500 rounded-full mt-2 flex-shrink-0" />
@@ -561,7 +754,7 @@ export default function RollDetail() {
                                 size="sm"
                                 className="h-6 px-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50 text-xs"
                                 onClick={() => {
-                                  if (confirm('Undo this transaction? The roll will be restored to its previous length.')) {
+                                  if (confirm(undoConfirmMessage(tx))) {
                                     undoTransactionMutation.mutate(tx);
                                   }
                                 }}
@@ -574,10 +767,12 @@ export default function RollDetail() {
                           </div>
                           {tx.length_change_ft !== 0 && (
                             <p className="text-sm text-slate-500">
-                              {tx.length_before_ft}ft → {formatFeetInches(tx.length_after_ft)}
-                              <span className={tx.length_change_ft < 0 ? 'text-red-500' : 'text-emerald-500'}>
-                                {' '}({tx.length_change_ft > 0 ? '+' : ''}{tx.length_change_ft}ft)
-                              </span>
+                              {formatFeetInches(tx.length_before_ft)} → {formatFeetInches(tx.length_after_ft)}
+                              {lengthChangeLabel && (
+                                <span className={tx.length_change_ft < 0 ? 'text-red-500' : 'text-emerald-500'}>
+                                  {' '}({lengthChangeLabel})
+                                </span>
+                              )}
                             </p>
                           )}
                           {tx.notes && (
@@ -598,6 +793,209 @@ export default function RollDetail() {
         </div>
       </div>
 
+      {/* Edit Roll Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Roll</DialogTitle>
+          </DialogHeader>
+          {editForm && (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-500">
+                Status stays with the Edit Status button so job allocations don&apos;t get out of sync.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <Label htmlFor="edit-product">Product</Label>
+                  <Select
+                    value={editForm.product_id}
+                    onValueChange={(v) => {
+                      const product = products.find(p => p.id === v);
+                      patchEditForm({
+                        product_id: v,
+                        product_name: product?.product_name || editForm.product_name,
+                      });
+                    }}
+                  >
+                    <SelectTrigger id="edit-product" className="w-full">
+                      <SelectValue placeholder={editForm.product_name || 'Select a product'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {products.map(p => (
+                        <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="edit-mfr-roll">Manufacturer Roll #</Label>
+                  <Input
+                    id="edit-mfr-roll"
+                    value={editForm.manufacturer_roll_number}
+                    onChange={(e) => patchEditForm({ manufacturer_roll_number: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-dye-lot">Dye Lot</Label>
+                  <Input
+                    id="edit-dye-lot"
+                    value={editForm.dye_lot}
+                    onChange={(e) => patchEditForm({ dye_lot: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-width">Width (ft)</Label>
+                  <Input
+                    id="edit-width"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editForm.width_ft}
+                    onChange={(e) => patchEditForm({ width_ft: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-condition">Condition</Label>
+                  <Select
+                    value={editForm.condition}
+                    onValueChange={(v) => patchEditForm({ condition: v })}
+                  >
+                    <SelectTrigger id="edit-condition" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ROLL_CONDITION_OPTIONS.map(c => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="edit-current-length">Current Length (ft)</Label>
+                  <Input
+                    id="edit-current-length"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editForm.current_length_ft}
+                    onChange={(e) => patchEditForm({ current_length_ft: e.target.value })}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Changing this writes an Adjustment to the transaction history.
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="edit-original-length">Original Length (ft)</Label>
+                  <Input
+                    id="edit-original-length"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editForm.original_length_ft}
+                    onChange={(e) => patchEditForm({ original_length_ft: e.target.value })}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="edit-roll-type">Roll Type</Label>
+                  <Select
+                    value={editForm.roll_type}
+                    onValueChange={(v) => patchEditForm({
+                      roll_type: v,
+                      ...(v === 'Parent' && { parent_roll_id: '', parent_tt_sku_tag_number: '' }),
+                    })}
+                  >
+                    <SelectTrigger id="edit-roll-type" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ROLL_TYPE_OPTIONS.map(t => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {editForm.roll_type === 'Child' && (
+                <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+                  <Label>Parent Roll</Label>
+                  {editForm.parent_roll_id ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-mono text-sm text-slate-800">
+                        {editForm.parent_tt_sku_tag_number || editForm.parent_roll_id}
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => patchEditForm({ parent_roll_id: '', parent_tt_sku_tag_number: '' })}
+                      >
+                        Change
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <Input
+                        placeholder="Search by tag or manufacturer roll #"
+                        value={parentSearch}
+                        onChange={(e) => setParentSearch(e.target.value)}
+                      />
+                      {parentSearch.trim() && parentMatches.length === 0 && (
+                        <p className="text-sm text-slate-500">No matching rolls.</p>
+                      )}
+                      <div className="space-y-1">
+                        {parentMatches.map(candidate => (
+                          <button
+                            key={candidate.id}
+                            type="button"
+                            onClick={() => patchEditForm({
+                              parent_roll_id: candidate.id,
+                              parent_tt_sku_tag_number: candidate.tt_sku_tag_number || candidate.roll_tag || '',
+                            })}
+                            className="w-full text-left p-2 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors"
+                          >
+                            <span className="font-mono text-sm">
+                              {candidate.tt_sku_tag_number || candidate.roll_tag}
+                            </span>
+                            <span className="text-xs text-slate-500 ml-2">
+                              {candidate.product_name} • {formatFeetInches(candidate.current_length_ft)}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        A child roll needs a parent. Pick one, or set the type back to Parent.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <Label htmlFor="edit-notes">Notes</Label>
+                <Textarea
+                  id="edit-notes"
+                  rows={3}
+                  value={editForm.notes}
+                  onChange={(e) => patchEditForm({ notes: e.target.value })}
+                />
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => editRollMutation.mutate(editForm)}
+                  disabled={editRollMutation.isPending}
+                >
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Status Dialog */}
       <Dialog open={showStatusEditor} onOpenChange={setShowStatusEditor}>
         <DialogContent>
@@ -605,7 +1003,7 @@ export default function RollDetail() {
             <DialogTitle>Edit Roll Status</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {findActiveAllocationForRoll(roll.id, allAllocations) && (
+            {activeAllocation && (
               <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
                 This roll is allocated to a job. Changing to a job-state status (Planned / Allocated / Staged / Fulfilled) will update the associated allocation. To release the roll, cancel or delete the allocation from the job page.
               </div>
@@ -614,16 +1012,17 @@ export default function RollDetail() {
               <Label htmlFor="status-select">Status</Label>
               <Select value={newStatusValue} onValueChange={setNewStatusValue}>
                 <SelectTrigger id="status-select" className="w-full">
-                  <SelectValue />
+                  <SelectValue placeholder="Select a status" />
                 </SelectTrigger>
                 <SelectContent>
-                  {ROLL_STATUS_OPTIONS.map(s => {
-                    const hasAlloc = !!findActiveAllocationForRoll(roll.id, allAllocations);
+                  {/* Job-state statuses only make sense while an allocation exists to carry
+                      them — otherwise they'd strand the roll with no job to release it. */}
+                  {statusOptions.map(s => {
                     // If allocated, only allow switching between job-state statuses
                     // (plus leaving it untouched) — disable Available/terminal states
                     // to force the user through the allocation flow.
                     const disabled =
-                      hasAlloc &&
+                      !!activeAllocation &&
                       !ROLL_ACTIVE_JOB_STATUSES.includes(s) &&
                       s !== roll.status;
                     return (
@@ -652,7 +1051,13 @@ export default function RollDetail() {
       </Dialog>
 
       {/* Plan for Job Dialog */}
-      <Dialog open={showPlanDialog} onOpenChange={setShowPlanDialog}>
+      <Dialog
+        open={showPlanDialog}
+        onOpenChange={(open) => {
+          setShowPlanDialog(open);
+          setSelectedJobId('');
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Plan Roll for Job</DialogTitle>
@@ -692,7 +1097,13 @@ export default function RollDetail() {
       </Dialog>
 
       {/* Allocate for Job Dialog */}
-      <Dialog open={showAllocateDialog} onOpenChange={setShowAllocateDialog}>
+      <Dialog
+        open={showAllocateDialog}
+        onOpenChange={(open) => {
+          setShowAllocateDialog(open);
+          setSelectedJobId('');
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Allocate Roll for Job</DialogTitle>

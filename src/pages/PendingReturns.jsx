@@ -8,7 +8,6 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -35,7 +34,15 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { toast } from 'sonner';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { ROLL_STATUS, ROLL_PENDING_STATUSES, STATUS_LABELS } from '@/lib/rollStatus';
+import {
+  ROLL_STATUS,
+  ROLL_PENDING_STATUSES,
+  STATUS_LABELS,
+  ALLOCATION_STATUS,
+  TRANSACTION_TYPE,
+  findActiveAllocationForRoll,
+  updateAllocationStatusWithSync,
+} from '@/lib/rollStatus';
 import { formatFeetInches } from '@/lib/dateHelpers';
 
 const DISPOSITION_OPTIONS = [
@@ -67,17 +74,32 @@ export default function PendingReturns() {
   const { data: pendingRolls = [], isLoading } = useQuery({
     queryKey: ['pending-rolls'],
     queryFn: async () => {
-      const rolls = await base44.entities.Roll.list('-created_date', 500);
-      return rolls.filter(r => ROLL_PENDING_STATUSES.includes(r.status));
+      // Query per status server-side: filtering a capped list client-side hides
+      // older pending rolls entirely once the Roll table outgrows the page size.
+      const perStatus = await Promise.all(
+        ROLL_PENDING_STATUSES.map(status => base44.entities.Roll.filter({ status })),
+      );
+      const byId = new Map();
+      for (const roll of perStatus.flat()) byId.set(roll.id, roll);
+      return [...byId.values()].sort(
+        (a, b) => new Date(b.created_date || 0) - new Date(a.created_date || 0),
+      );
     },
   });
 
   const { data: locations = [] } = useQuery({
-    queryKey: ['locations'],
+    queryKey: ['locations', 'turf'],
     queryFn: async () => {
       const locs = await base44.entities.Location.list();
-      return locs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      return locs
+        .filter(l => l.designated_for === 'all' || l.designated_for === 'turf_only')
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     },
+  });
+
+  const { data: allocations = [] } = useQuery({
+    queryKey: ['allocations'],
+    queryFn: () => base44.entities.Allocation.list('-created_date', 5000),
   });
 
   const openReview = roll => {
@@ -100,21 +122,56 @@ export default function PendingReturns() {
   const finalizeMutation = useMutation({
     mutationFn: async () => {
       if (!reviewRoll) throw new Error('No roll selected');
-      const user = await base44.auth.me();
+      const toAvailable = reviewForm.disposition === ROLL_STATUS.AVAILABLE;
       const loc = locations.find(l => l.id === reviewForm.location_id);
 
-      if (reviewForm.disposition === ROLL_STATUS.AVAILABLE && !reviewForm.location_id) {
-        throw new Error('A location is required when releasing to Available inventory.');
+      if (toAvailable) {
+        if (!reviewForm.location_id) {
+          throw new Error('A location is required when releasing to Available inventory.');
+        }
+        // location_id and location_name have to move together — writing one
+        // without the other leaves screens pointing at two different bins.
+        if (!loc) {
+          throw new Error(
+            locations.length === 0
+              ? 'Locations are still loading. Give it a second, then confirm again.'
+              : 'Pick a turf location from the list before confirming.',
+          );
+        }
       }
 
-      await base44.entities.Roll.update(reviewRoll.id, {
-        status: reviewForm.disposition,
-        location_id: reviewForm.location_id || reviewRoll.location_id,
-        location_name: loc?.name || reviewRoll.location_name,
-      });
+      const user = await base44.auth.me();
+      const lengthBefore = reviewRoll.current_length_ft || 0;
+
+      // The allocation the roll came back from still claims it until closed,
+      // which would let the same roll be dispatched to a second job.
+      const activeAllocation = findActiveAllocationForRoll(reviewRoll.id, allocations);
+      if (activeAllocation) {
+        await updateAllocationStatusWithSync(
+          activeAllocation.id,
+          ALLOCATION_STATUS.COMPLETED,
+          activeAllocation,
+        );
+      }
+
+      if (toAvailable) {
+        await base44.entities.Roll.update(reviewRoll.id, {
+          status: ROLL_STATUS.AVAILABLE,
+          allocated_job_id: null,
+          location_id: loc.id,
+          location_name: loc.name,
+        });
+      } else {
+        // Scrapped turf keeps being counted wherever totals aren't status-filtered
+        // unless its footage is written off here.
+        await base44.entities.Roll.update(reviewRoll.id, {
+          status: ROLL_STATUS.SCRAPPED,
+          current_length_ft: 0,
+        });
+      }
 
       await base44.entities.Transaction.create({
-        transaction_type: 'PendingReview',
+        transaction_type: TRANSACTION_TYPE.PENDING_REVIEW,
         roll_id: reviewRoll.id,
         tt_sku_tag_number: reviewRoll.tt_sku_tag_number,
         parent_roll_id: reviewRoll.parent_roll_id || null,
@@ -122,24 +179,27 @@ export default function PendingReturns() {
         product_name: reviewRoll.product_name,
         dye_lot: reviewRoll.dye_lot,
         width_ft: reviewRoll.width_ft,
-        length_change_ft: 0,
-        length_before_ft: reviewRoll.current_length_ft,
-        length_after_ft: reviewRoll.current_length_ft,
-        location_to: loc?.name || reviewRoll.location_name,
+        length_change_ft: toAvailable ? 0 : -lengthBefore,
+        length_before_ft: lengthBefore,
+        length_after_ft: toAvailable ? lengthBefore : 0,
+        location_to: toAvailable ? loc.name : reviewRoll.location_name,
         performed_by: user.full_name || user.email,
-        notes: `Pending review finalized: ${STATUS_LABELS[reviewForm.disposition]}. ${reviewForm.notes || ''}`.trim(),
+        notes: `Pending review finalized: ${STATUS_LABELS[reviewForm.disposition]}.${
+          toAvailable ? '' : ` Wrote off ${lengthBefore}ft.`
+        } ${reviewForm.notes || ''}`.trim(),
       });
 
       return {
         roll: reviewRoll,
         disposition: reviewForm.disposition,
-        location: loc?.name || '',
+        location: toAvailable ? loc.name : '',
       };
     },
     onSuccess: result => {
       queryClient.invalidateQueries({ queryKey: ['pending-rolls'] });
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['allocations'] });
       setLastFinalized(result);
       closeReview();
       toast.success(`Roll ${result.roll.tt_sku_tag_number} → ${STATUS_LABELS[result.disposition]}`);
@@ -388,7 +448,11 @@ export default function PendingReturns() {
                 </Button>
                 <Button
                   onClick={() => finalizeMutation.mutate()}
-                  disabled={finalizeMutation.isPending}
+                  disabled={
+                    finalizeMutation.isPending ||
+                    (reviewForm.disposition === ROLL_STATUS.AVAILABLE &&
+                      !reviewForm.location_id)
+                  }
                   className="bg-emerald-600 hover:bg-emerald-700"
                 >
                   <Check className="h-4 w-4 mr-2" />
