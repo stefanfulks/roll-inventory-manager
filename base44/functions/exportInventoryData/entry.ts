@@ -9,6 +9,15 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Products carry cost_per_sqft, which the UI shows to admins only. Without this
+    // gate any warehouse user could pull the full costed database from this URL.
+    if (user.role !== 'admin') {
+      return Response.json(
+        { error: 'This export includes cost data and is limited to admins.' },
+        { status: 403 },
+      );
+    }
+
     // Fetch all data
     const [rolls, jobs, transactions, allocations, products, inventoryItems] = await Promise.all([
       base44.asServiceRole.entities.Roll.list(),

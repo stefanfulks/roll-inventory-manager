@@ -1,32 +1,46 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, Package } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { Calendar } from 'lucide-react';
+import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { formatFeetInches } from '@/lib/dateHelpers';
+import { formatFeetInches, parseLocalDate } from '@/lib/dateHelpers';
+import { ROLL_STATUS } from '@/lib/rollStatus';
+
+// Work that hasn't shipped yet. Restricting this to Planned made rolls disappear
+// from the forecast as their job got closer, which hid the most imminent demand.
+const UPCOMING_STATUSES = [
+  ROLL_STATUS.PLANNED,
+  ROLL_STATUS.ALLOCATED,
+  ROLL_STATUS.STAGED,
+];
 
 export default function ForecastChart({ rolls, jobs }) {
-  // Get rolls in Planned status
-  const plannedRolls = rolls.filter(r => r.status === 'Planned' && r.allocated_job_id);
+  const upcomingRolls = rolls.filter(
+    r => UPCOMING_STATUSES.includes(r.status) && r.allocated_job_id,
+  );
 
-  // Group by job and get scheduled dates
-  const forecastData = plannedRolls.map(roll => {
-    const job = jobs.find(j => j.id === roll.allocated_job_id);
-    return {
-      roll,
-      job,
-      scheduledDate: job?.scheduled_date,
-      sqft: roll.current_length_ft * roll.width_ft
-    };
-  }).filter(item => item.job && item.scheduledDate);
+  const forecastData = upcomingRolls
+    .map(roll => {
+      const job = jobs.find(j => j.id === roll.allocated_job_id);
+      // An unparseable scheduled_date used to reach date-fns `format`, which throws
+      // RangeError and blanks the whole dashboard.
+      const scheduledDate = parseLocalDate(job?.scheduled_date);
+      return {
+        roll,
+        job,
+        scheduledDate,
+        sqft: (parseFloat(roll.current_length_ft) || 0) * (parseFloat(roll.width_ft) || 0),
+      };
+    })
+    .filter(item => item.job && item.scheduledDate);
 
-  // Sort by scheduled date
-  forecastData.sort((a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate));
+  forecastData.sort((a, b) => a.scheduledDate - b.scheduledDate);
 
-  // Group by date
+  // Normalise the key so a date-only string and a timestamp for the same day don't
+  // render as two separate headings.
   const groupedByDate = forecastData.reduce((acc, item) => {
-    const dateKey = item.scheduledDate;
+    const dateKey = format(item.scheduledDate, 'yyyy-MM-dd');
     if (!acc[dateKey]) {
       acc[dateKey] = [];
     }
@@ -42,11 +56,13 @@ export default function ForecastChart({ rolls, jobs }) {
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2 dark:text-white">
             <Calendar className="h-5 w-5 text-purple-600" />
-            Turf Forecast (Planned)
+            Turf Forecast (Upcoming)
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-500 text-sm dark:text-slate-400">No planned rolls scheduled yet</p>
+          <p className="text-slate-500 text-sm dark:text-slate-400">
+            No upcoming rolls scheduled yet
+          </p>
         </CardContent>
       </Card>
     );
@@ -57,10 +73,10 @@ export default function ForecastChart({ rolls, jobs }) {
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2 dark:text-white">
           <Calendar className="h-5 w-5 text-purple-600" />
-          Turf Forecast (Planned)
+          Turf Forecast (Upcoming)
         </CardTitle>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          {forecastData.length} roll{forecastData.length !== 1 ? 's' : ''} • {totalPlannedSqFt.toLocaleString()} sq ft total
+          {forecastData.length} roll{forecastData.length !== 1 ? 's' : ''} • {Math.round(totalPlannedSqFt).toLocaleString()} sq ft total
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -69,7 +85,7 @@ export default function ForecastChart({ rolls, jobs }) {
             <div className="flex items-center gap-2 mb-2">
               <Calendar className="h-4 w-4 text-purple-600" />
               <span className="font-semibold text-slate-800 dark:text-white">
-                {format(parseISO(dateKey), 'MMMM d, yyyy')}
+                {format(parseLocalDate(dateKey), 'MMMM d, yyyy')}
               </span>
               <span className="text-xs text-slate-500 dark:text-slate-400">
                 ({items.length} roll{items.length !== 1 ? 's' : ''})
@@ -98,7 +114,7 @@ export default function ForecastChart({ rolls, jobs }) {
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold text-slate-800 dark:text-white">
-                        {sqft.toLocaleString()} sq ft
+                        {Math.round(sqft).toLocaleString()} sq ft
                       </p>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
                         Dye Lot: {roll.dye_lot}

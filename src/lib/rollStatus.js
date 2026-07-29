@@ -254,3 +254,50 @@ export async function setRollStatusManually(roll, newStatus, allAllocations) {
   });
   return { ok: true };
 }
+
+// ---------- Canonical transaction types ----------
+
+// The ONLY transaction_type values the app writes. A filter offering anything
+// else can never match a stored row, so UI dropdowns must be driven from here.
+export const TRANSACTION_TYPE = Object.freeze({
+  RECEIVE_ROLL: 'ReceiveRoll',
+  PENDING_REVIEW: 'PendingReview',
+  PLAN_FOR_JOB: 'PlanForJob',
+  ALLOCATE_FOR_JOB: 'AllocateForJob',
+  ASSIGN_TO_JOB: 'AssignToJob',
+  SEND_OUT_TO_JOB: 'SendOutToJob',
+  RETURN_FROM_JOB: 'ReturnFromJob',
+  CUT_CREATE_CHILD: 'CutCreateChild',
+  ROLL_SWAP: 'RollSwap',
+  ADJUSTMENT: 'Adjustment',
+  REVERSAL: 'Reversal',
+});
+
+// Ordered roughly by where they occur in a roll's life, for UI dropdowns.
+export const TRANSACTION_TYPE_OPTIONS = [
+  TRANSACTION_TYPE.RECEIVE_ROLL,
+  TRANSACTION_TYPE.PENDING_REVIEW,
+  TRANSACTION_TYPE.PLAN_FOR_JOB,
+  TRANSACTION_TYPE.ALLOCATE_FOR_JOB,
+  TRANSACTION_TYPE.ASSIGN_TO_JOB,
+  TRANSACTION_TYPE.SEND_OUT_TO_JOB,
+  TRANSACTION_TYPE.RETURN_FROM_JOB,
+  TRANSACTION_TYPE.CUT_CREATE_CHILD,
+  TRANSACTION_TYPE.ROLL_SWAP,
+  TRANSACTION_TYPE.ADJUSTMENT,
+  TRANSACTION_TYPE.REVERSAL,
+];
+
+export const TRANSACTION_TYPE_LABELS = Object.freeze({
+  [TRANSACTION_TYPE.RECEIVE_ROLL]: 'Received',
+  [TRANSACTION_TYPE.PENDING_REVIEW]: 'Pending Review',
+  [TRANSACTION_TYPE.PLAN_FOR_JOB]: 'Planned for Job',
+  [TRANSACTION_TYPE.ALLOCATE_FOR_JOB]: 'Allocated to Job',
+  [TRANSACTION_TYPE.ASSIGN_TO_JOB]: 'Assigned to Job',
+  [TRANSACTION_TYPE.SEND_OUT_TO_JOB]: 'Sent to Job',
+  [TRANSACTION_TYPE.RETURN_FROM_JOB]: 'Returned from Job',
+  [TRANSACTION_TYPE.CUT_CREATE_CHILD]: 'Cut — Child Created',
+  [TRANSACTION_TYPE.ROLL_SWAP]: 'Roll Swap',
+  [TRANSACTION_TYPE.ADJUSTMENT]: 'Adjustment',
+  [TRANSACTION_TYPE.REVERSAL]: 'Reversal',
+});

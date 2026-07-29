@@ -14,7 +14,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import StatusBadge from '@/components/ui/StatusBadge';
 import { format } from 'date-fns';
 import { useIsAdmin } from '@/lib/AuthContext';
 import {
@@ -33,19 +32,30 @@ export default function AgingReport() {
   const isAdmin = useIsAdmin();
   const [selectedBucket, setSelectedBucket] = useState(null);
 
-  const { data: rolls = [], isLoading } = useQuery({
+  const { data: rolls = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['rolls'],
-    queryFn: () => base44.entities.Roll.list('-created_date', 1000),
+    queryFn: () => base44.entities.Roll.list('-created_date', 5000),
   });
 
   const { data: products = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => base44.entities.Product.list('-created_date', 200),
+    queryKey: ['products', 'all'],
+    queryFn: () => base44.entities.Product.list('-created_date', 500),
   });
 
-  // Only aging Available inventory — we don't want to double-count rolls that are actively on jobs.
+  // Age every roll physically sitting in the yard, not just Available ones.
+  // AwaitingLocation / PendingAvailable / ReturnedHold aren't job commitments —
+  // they're unshelved stock, which is exactly what an aging report is for, and a
+  // roll stuck there for 200 days was previously invisible and valued at $0.
   const availableRolls = useMemo(
-    () => rolls.filter(r => r.status === ROLL_STATUS.AVAILABLE),
+    () =>
+      rolls.filter(r =>
+        [
+          ROLL_STATUS.AVAILABLE,
+          ROLL_STATUS.AWAITING_LOCATION,
+          ROLL_STATUS.PENDING_AVAILABLE,
+          ROLL_STATUS.RETURNED_HOLD,
+        ].includes(r.status),
+      ),
     [rolls],
   );
 
@@ -178,7 +188,16 @@ export default function AgingReport() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {isLoading ? (
+          {isError ? (
+            <div className="p-8 text-center space-y-3">
+              <p className="text-red-600 font-medium">Couldn't load inventory.</p>
+              <p className="text-sm text-slate-500">
+                The buckets above would all read zero, so treat them as unknown rather
+                than empty.
+              </p>
+              <Button variant="outline" onClick={() => refetch()}>Try again</Button>
+            </div>
+          ) : isLoading ? (
             <div className="p-6 text-slate-500">Loading…</div>
           ) : sortedRolls.length === 0 ? (
             <div className="p-8 text-center text-slate-500">No rolls in this bucket.</div>

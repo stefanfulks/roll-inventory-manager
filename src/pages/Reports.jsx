@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
 import { 
@@ -11,11 +11,26 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { format, differenceInDays } from 'date-fns';
+import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { ROLL_STATUS } from '@/lib/rollStatus';
+import { DEFAULT_LONG_SITTING_DAYS, daysSinceReceived } from '@/lib/costing';
+
+// Legacy rolls may carry only a product_name, so fall back to it when there's no id.
+const rollMatchesProduct = (roll, product) => {
+  if (roll.product_id && product.id && roll.product_id === product.id) return true;
+  if (roll.product_name && product.product_name && roll.product_name === product.product_name) {
+    return true;
+  }
+  return false;
+};
+
+/** Always-quoted CSV cell with internal quotes doubled. */
+const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+const toCsv = (rows) => rows.map(row => row.map(csvCell).join(',')).join('\n');
 
 export default function Reports() {
   const { data: rolls = [], isLoading: rollsLoading } = useQuery({
@@ -29,8 +44,8 @@ export default function Reports() {
   });
 
   const { data: products = [], isLoading: productsLoading } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => base44.entities.Product.list(),
+    queryKey: ['products', 'all'],
+    queryFn: () => base44.entities.Product.list('-created_date', 500),
   });
 
   const { data: settings = [], isLoading: settingsLoading } = useQuery({
@@ -43,41 +58,62 @@ export default function Reports() {
     return setting?.setting_value || defaultValue;
   };
 
-  const lowThreshold = parseInt(getSetting('low_inventory_threshold', '5'));
-  const longSittingDays = parseInt(getSetting('long_sitting_days', '90'));
+  // A stored value that isn't a number used to yield NaN, which made every
+  // comparison false and reported a reassuring zero instead of a real problem.
+  const intSetting = (key, fallback) => {
+    const n = parseInt(getSetting(key, String(fallback)), 10);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  const lowThreshold = intSetting('low_inventory_threshold', 5);
+  const longSittingDays = intSetting('long_sitting_days', DEFAULT_LONG_SITTING_DAYS);
 
   // Filter for TexasTurf only
   const texasTurfRolls = rolls.filter(r => r.inventory_owner === 'TexasTurf');
 
-  // Calculate low inventory products
+  // Driven by the product catalogue, not by the rolls that happen to exist: keying
+  // off existing rolls meant a product with zero available rolls never appeared,
+  // hiding exactly the products that had run out.
   const getLowInventoryProducts = () => {
-    const productCounts = {};
-    texasTurfRolls
-      .filter(r => r.status === 'Available')
-      .forEach(roll => {
-        const key = `${roll.product_name}-${roll.width_ft}`;
-        productCounts[key] = (productCounts[key] || 0) + 1;
-      });
+    const availableRolls = texasTurfRolls.filter(r => r.status === ROLL_STATUS.AVAILABLE);
 
-    return Object.entries(productCounts)
-      .filter(([_, count]) => count <= lowThreshold)
-      .map(([key, count]) => {
-        const [product_name, width] = key.split('-');
-        return { product_name, width_ft: parseFloat(width), count };
-      });
+    const rows = [];
+    for (const product of products) {
+      if (product.status && product.status !== 'active') continue;
+      const widths =
+        product.width_options && product.width_options.length > 0
+          ? product.width_options
+          : [null];
+
+      for (const width of widths) {
+        const count = availableRolls.filter(
+          r =>
+            rollMatchesProduct(r, product) &&
+            (width === null || Math.abs((parseFloat(r.width_ft) || 0) - width) < 0.01),
+        ).length;
+
+        if (count <= lowThreshold) {
+          rows.push({
+            product_name: product.product_name,
+            width_ft: width === null ? null : parseFloat(width),
+            count,
+          });
+        }
+      }
+    }
+    return rows.sort((a, b) => a.count - b.count);
   };
 
   // Calculate long-sitting products
   const getLongSittingRolls = () => {
-    const today = new Date();
     return texasTurfRolls
       .filter(roll => {
-        const daysSinceReceived = differenceInDays(today, new Date(roll.created_date));
-        return daysSinceReceived >= longSittingDays && roll.status === 'Available';
+        const days = daysSinceReceived(roll);
+        return Number.isFinite(days) && days >= longSittingDays && roll.status === ROLL_STATUS.AVAILABLE;
       })
       .map(roll => ({
         ...roll,
-        days_sitting: differenceInDays(today, new Date(roll.created_date))
+        days_sitting: daysSinceReceived(roll),
       }));
   };
 
@@ -143,7 +179,7 @@ export default function Reports() {
       roll.notes || ''
     ]);
 
-    const csv = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    const csv = toCsv([headers, ...rows]);
     downloadCSV(csv, `inventory_${format(new Date(), 'yyyy-MM-dd')}.csv`);
     toast.success('Inventory report exported');
   };
@@ -178,7 +214,7 @@ export default function Reports() {
       item.count <= lowThreshold ? 'LOW' : 'OK'
     ]);
 
-    const csv = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    const csv = toCsv([headers, ...rows]);
     downloadCSV(csv, `low_inventory_${format(new Date(), 'yyyy-MM-dd')}.csv`);
     toast.success('Low inventory report exported');
   };
@@ -235,7 +271,7 @@ export default function Reports() {
       roll.days_sitting
     ]);
 
-    const csv = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    const csv = toCsv([headers, ...rows]);
     downloadCSV(csv, `long_sitting_${format(new Date(), 'yyyy-MM-dd')}.csv`);
     toast.success('Long-sitting report exported');
   };
@@ -295,13 +331,13 @@ export default function Reports() {
       tx.length_change_ft || 0,
       tx.length_before_ft || '',
       tx.length_after_ft || '',
-      tx.job_name || '',
+      tx.job_number || tx.job_name || '',
       tx.bundle_id || '',
       tx.performed_by || tx.created_by || '',
       tx.notes || ''
     ]);
 
-    const csv = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    const csv = toCsv([headers, ...rows]);
     downloadCSV(csv, `transactions_${format(new Date(), 'yyyy-MM-dd')}.csv`);
     toast.success('Transaction report exported');
   };

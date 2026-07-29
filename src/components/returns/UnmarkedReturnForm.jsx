@@ -35,15 +35,21 @@ export default function UnmarkedReturnForm({ onCancel, onSuccess }) {
   const [rows, setRows] = useState([newRow()]);
 
   const { data: products = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => base44.entities.Product.list('-created_date', 200),
+    queryKey: ['products', 'active'],
+    queryFn: () => base44.entities.Product.filter({ status: 'active' }, '-created_date', 500),
   });
   const { data: locations = [] } = useQuery({
-    queryKey: ['locations'],
+    queryKey: ['locations', 'turf'],
     queryFn: async () => {
-      const locs = await base44.entities.Location.list();
-      return locs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const locs = await base44.entities.Location.list('-created_date', 200);
+      return locs
+        .filter(l => l.designated_for === 'all' || l.designated_for === 'turf_only')
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     },
+  });
+  const { data: existingRolls = [] } = useQuery({
+    queryKey: ['rolls'],
+    queryFn: () => base44.entities.Roll.list('-created_date', 5000),
   });
 
   function newRow() {
@@ -52,6 +58,7 @@ export default function UnmarkedReturnForm({ onCancel, onSuccess }) {
       tt_sku_tag_number: '',
       product_id: '',
       product_name: '',
+      manufacturer_roll_number: '',
       width_ft: '',
       length_ft: '',
       dye_lot: '',
@@ -86,35 +93,58 @@ export default function UnmarkedReturnForm({ onCancel, onSuccess }) {
   const submitMutation = useMutation({
     mutationFn: async () => {
       const user = await base44.auth.me();
-      const created = [];
 
-      for (const row of rows) {
-        if (!row.tt_sku_tag_number?.trim()) throw new Error('Every row needs a TT SKU tag.');
+      // Every row is checked before the first write. Validating inside the write
+      // loop meant a bad row 3 left rows 1-2 created, and re-saving duplicated them.
+      const seenTags = new Set();
+      const prepared = rows.map(row => {
+        const tag = row.tt_sku_tag_number?.trim();
+        if (!tag) throw new Error('Every row needs a TT SKU tag.');
         const lengthNum = parseFloat(row.length_ft);
         const widthNum = parseFloat(row.width_ft);
-        if (!lengthNum || lengthNum <= 0) throw new Error(`Row "${row.tt_sku_tag_number}": length must be > 0`);
-        if (!widthNum || widthNum <= 0) throw new Error(`Row "${row.tt_sku_tag_number}": width must be > 0`);
-        if (!row.product_id) throw new Error(`Row "${row.tt_sku_tag_number}": pick a product`);
+        if (!lengthNum || lengthNum <= 0) throw new Error(`Row "${tag}": length must be > 0`);
+        if (!widthNum || widthNum <= 0) throw new Error(`Row "${tag}": width must be > 0`);
+        if (!row.product_id) throw new Error(`Row "${tag}": pick a product`);
+        if (existingRolls.some(r => r.tt_sku_tag_number === tag)) {
+          throw new Error(`Tag ${tag} is already used by another roll.`);
+        }
+        if (seenTags.has(tag)) throw new Error(`Tag ${tag} is entered on more than one row.`);
+        seenTags.add(tag);
+        return { row, tag, lengthNum, widthNum };
+      });
 
+      const created = [];
+
+      for (const { row, tag, lengthNum, widthNum } of prepared) {
         const targetStatus = targetFor(row.condition, row.sendToPending);
         const loc = locations.find(l => l.id === row.location_id);
+        const product = products.find(p => p.id === row.product_id);
+        // Written-off turf must not carry footage, or it keeps showing up in every
+        // total that isn't status-filtered.
+        const storedLength = targetStatus === ROLL_STATUS.SCRAPPED ? 0 : lengthNum;
 
         const rollData = {
-          tt_sku_tag_number: row.tt_sku_tag_number.trim(),
+          tt_sku_tag_number: tag,
           parent_roll_id: null,
           parent_tt_sku_tag_number: null,
+          vendor_id: product?.manufacturer_id || null,
+          vendor_name: product?.manufacturer_name || '',
           product_id: row.product_id,
           product_name: row.product_name,
+          manufacturer_roll_number: row.manufacturer_roll_number?.trim() || '',
           dye_lot: row.dye_lot || '',
           width_ft: widthNum,
           original_length_ft: lengthNum,
-          current_length_ft: lengthNum,
+          current_length_ft: storedLength,
           roll_type: 'Parent',
           condition: row.condition,
           location_id: row.location_id || null,
           location_name: loc?.name || '',
           status: targetStatus,
           date_received: new Date().toISOString().split('T')[0],
+          // Reports scope low-inventory, aging and valuation to TexasTurf-owned
+          // stock, so an unset owner drops the roll out of all of them.
+          inventory_owner: 'TexasTurf',
           allocated_job_id: null,
           notes: `Unmarked return — source unknown. ${row.notes || ''}`.trim(),
         };
@@ -123,25 +153,30 @@ export default function UnmarkedReturnForm({ onCancel, onSuccess }) {
 
         await base44.entities.Transaction.create({
           transaction_type: 'ReturnFromJob',
+          fulfillment_for: 'TexasTurf',
           roll_id: newRoll.id,
           tt_sku_tag_number: newRoll.tt_sku_tag_number,
           product_name: row.product_name,
           dye_lot: row.dye_lot || '',
           width_ft: widthNum,
-          length_change_ft: lengthNum,
+          length_change_ft: storedLength,
           length_before_ft: 0,
-          length_after_ft: lengthNum,
+          length_after_ft: storedLength,
           location_to: loc?.name || '',
           performed_by: user.full_name || user.email,
           notes: `Unmarked return — no source job. Condition ${row.condition}. ${row.notes || ''}`.trim(),
         });
 
+        // Drop the row the moment it lands, so a retry after a later row fails
+        // can't create this one twice.
+        setRows(prev => prev.filter(r => r.key !== row.key));
         created.push({ roll: newRoll, targetStatus, location: loc?.name || '' });
       }
 
       return created;
     },
     onSuccess: results => {
+      setRows([newRow()]);
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['pending-rolls'] });
@@ -196,6 +231,15 @@ export default function UnmarkedReturnForm({ onCancel, onSuccess }) {
                 />
               </div>
               <div>
+                <Label className="text-xs">Manufacturer roll number</Label>
+                <Input
+                  value={row.manufacturer_roll_number}
+                  onChange={e => updateRow(row.key, { manufacturer_roll_number: e.target.value })}
+                  placeholder="If printed on the roll"
+                  className="font-mono"
+                />
+              </div>
+              <div>
                 <Label className="text-xs">Condition *</Label>
                 <Select value={row.condition} onValueChange={v => updateRow(row.key, { condition: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -219,11 +263,11 @@ export default function UnmarkedReturnForm({ onCancel, onSuccess }) {
               </div>
               <div>
                 <Label className="text-xs">Width (ft) *</Label>
-                <Input type="number" step="0.1" value={row.width_ft} onChange={e => updateRow(row.key, { width_ft: e.target.value })} />
+                <Input type="number" step="0.01" value={row.width_ft} onChange={e => updateRow(row.key, { width_ft: e.target.value })} />
               </div>
               <div>
                 <Label className="text-xs">Length (ft) *</Label>
-                <Input type="number" step="0.1" value={row.length_ft} onChange={e => updateRow(row.key, { length_ft: e.target.value })} />
+                <Input type="number" step="0.01" value={row.length_ft} onChange={e => updateRow(row.key, { length_ft: e.target.value })} />
               </div>
               <div>
                 <Label className="text-xs">Location</Label>

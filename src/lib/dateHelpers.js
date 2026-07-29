@@ -14,6 +14,8 @@
  * (created_date, updated_date, ISO datetimes ending in Z or +offset).
  */
 
+import { format } from 'date-fns';
+
 /**
  * Parse a date-only string like "2026-05-07" as a local-time Date object.
  * Falsy input → null. Strings already containing time components (T) are
@@ -50,4 +52,20 @@ export function formatFeetInches(decimalFeet) {
   if (inches === 12) return `${feet + 1}' 0"`;
   if (inches === 0) return `${feet}'`;
   return `${feet}' ${inches}"`;
+}
+
+/**
+ * Format a stored timestamp with date-fns without ever throwing.
+ * date-fns `format` raises RangeError on an invalid Date, which with no
+ * ErrorBoundary in the tree takes the whole page down over one bad row.
+ */
+export function safeFormat(value, pattern, fallback = '-') {
+  if (!value) return fallback;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return fallback;
+  try {
+    return format(d, pattern);
+  } catch {
+    return fallback;
+  }
 }

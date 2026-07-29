@@ -9,18 +9,27 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
+// Ids must match the `visibleCharts.includes(...)` checks in TurfDashboard, or the
+// toggle does nothing and the chart can never be hidden.
 const chartOptions = [
-  { id: 'status_distribution', label: 'Inventory by Status' },
+  { id: 'turf_type_distribution', label: 'Inventory by Turf Type' },
   { id: 'shipped_total', label: 'Total Shipped Out' },
   { id: 'top_turf', label: 'Top Turf by Jobs' },
   { id: 'length_distribution', label: 'Remaining Length Buckets' },
   { id: 'roll_type', label: 'Parent vs Child Rolls' },
-  { id: 'full_vs_partial_count', label: 'Full vs Partial Rolls Count' },
-  { id: 'full_vs_partial_sqft', label: 'Full vs Partial Sq Ft' }
+  { id: 'full_vs_partial_count', label: 'Uncut vs Remnant Rolls Count' },
+  { id: 'full_vs_partial_sqft', label: 'Uncut vs Remnant Sq Ft' }
 ];
 
 export default function DashboardCustomizer({ open, onOpenChange, visibleCharts, onSave }) {
   const [selectedCharts, setSelectedCharts] = React.useState(visibleCharts);
+
+  // Saved preferences arrive well after this component first mounts, so without
+  // this the dialog opens showing the defaults and Save overwrites the real
+  // selection with them.
+  React.useEffect(() => {
+    if (open) setSelectedCharts(visibleCharts);
+  }, [open, visibleCharts]);
 
   const handleToggle = (chartId) => {
     setSelectedCharts(prev => 

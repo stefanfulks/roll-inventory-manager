@@ -28,8 +28,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Edit, Trash2, Package, Search, ArrowUpDown } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, ArrowUpDown } from 'lucide-react';
 import { toast } from 'sonner';
+import { describeError } from '@/lib/query-client';
 
 const CATEGORIES = [
   "Adhesives (Glue)",
@@ -45,6 +46,24 @@ const CATEGORIES = [
   "Tools",
   "Cleaning / Deodorizer"
 ];
+
+// A blank quantity means "unknown", which is not the same as zero: it must never
+// be compared against the minimum, and it must not render as 0.
+const isQuantityKnown = (value) => value !== null && value !== undefined && value !== '';
+
+const isLowStock = (item) =>
+  isQuantityKnown(item.min_stock_level_units) &&
+  isQuantityKnown(item.quantity_on_hand) &&
+  Number(item.quantity_on_hand) < Number(item.min_stock_level_units);
+
+// Numeric inputs hold their raw string while typing so a decimal point survives;
+// they're coerced here, once, on submit.
+const toNumberOrNull = (value) => {
+  const trimmed = String(value ?? '').trim();
+  if (trimmed === '') return null;
+  const n = parseFloat(trimmed);
+  return Number.isFinite(n) ? n : null;
+};
 
 export default function InventoryItems() {
   const queryClient = useQueryClient();
@@ -66,11 +85,11 @@ export default function InventoryItems() {
     notes: ''
   });
 
-  const { data: items = [], isLoading } = useQuery({
+  const { data: items = [], isLoading, isError } = useQuery({
     queryKey: ['inventoryItems', sortColumn, sortDirection],
     queryFn: () => {
       const sortParam = sortDirection === 'desc' ? `-${sortColumn}` : sortColumn;
-      return base44.entities.InventoryItem.list(sortParam);
+      return base44.entities.InventoryItem.list(sortParam, 1000);
     }
   });
 
@@ -105,6 +124,9 @@ export default function InventoryItems() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
       toast.success('Item deleted successfully');
+    },
+    onError: (error) => {
+      toast.error(`Couldn't delete the item: ${describeError(error)}`);
     }
   });
 
@@ -125,21 +147,26 @@ export default function InventoryItems() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    const data = {
+      ...formData,
+      quantity_on_hand: toNumberOrNull(formData.quantity_on_hand),
+      min_stock_level_units: toNumberOrNull(formData.min_stock_level_units),
+    };
     if (editingItem) {
-      updateMutation.mutate({ id: editingItem.id, data: formData });
+      updateMutation.mutate({ id: editingItem.id, data });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(data);
     }
   };
 
   const handleEdit = (item) => {
     setEditingItem(item);
     setFormData({
-      item_name: item.item_name,
+      item_name: item.item_name ?? '',
       sku: item.sku || '',
-      category: item.category,
-      unit_of_measure: item.unit_of_measure,
-      unit_size_definition: item.unit_size_definition,
+      category: item.category ?? '',
+      unit_of_measure: item.unit_of_measure ?? '',
+      unit_size_definition: item.unit_size_definition ?? '',
       quantity_on_hand: item.quantity_on_hand ?? '',
       min_stock_level_units: item.min_stock_level_units ?? '',
       partial_return_type: item.partial_return_type || '',
@@ -158,9 +185,7 @@ export default function InventoryItems() {
   });
 
   // Calculate low stock items
-  const lowStockItems = items.filter(item => 
-    item.min_stock_level_units && item.quantity_on_hand < item.min_stock_level_units
-  );
+  const lowStockItems = items.filter(isLowStock);
 
   const handleSort = (column) => {
     if (sortColumn === column) {
@@ -272,7 +297,7 @@ export default function InventoryItems() {
                     type="number"
                     step="0.25"
                     value={formData.quantity_on_hand}
-                    onChange={(e) => setFormData({...formData, quantity_on_hand: e.target.value === '' ? '' : parseFloat(e.target.value)})}
+                    onChange={(e) => setFormData({...formData, quantity_on_hand: e.target.value})}
                     placeholder="Leave blank if unknown"
                     className="dark:bg-slate-800 dark:text-white dark:border-slate-700"
                   />
@@ -283,7 +308,7 @@ export default function InventoryItems() {
                     type="number"
                     step="0.25"
                     value={formData.min_stock_level_units}
-                    onChange={(e) => setFormData({...formData, min_stock_level_units: e.target.value === '' ? '' : parseFloat(e.target.value)})}
+                    onChange={(e) => setFormData({...formData, min_stock_level_units: e.target.value})}
                     placeholder="Leave blank if not tracked"
                     className="dark:bg-slate-800 dark:text-white dark:border-slate-700"
                   />
@@ -426,6 +451,12 @@ export default function InventoryItems() {
                     Loading...
                   </TableCell>
                 </TableRow>
+              ) : isError ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-red-600 dark:text-red-400">
+                    Couldn't load inventory items. Check your connection and refresh.
+                  </TableCell>
+                </TableRow>
               ) : filteredItems.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center py-8 text-slate-500 dark:text-slate-400">
@@ -434,11 +465,11 @@ export default function InventoryItems() {
                 </TableRow>
               ) : (
                 filteredItems.map((item) => {
-                  const isLowStock = item.min_stock_level_units && item.quantity_on_hand < item.min_stock_level_units;
+                  const lowStock = isLowStock(item);
                   return (
-                    <TableRow 
-                      key={item.id} 
-                      className={`cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors ${isLowStock ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}
+                    <TableRow
+                      key={item.id}
+                      className={`cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors ${lowStock ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}
                       onClick={() => handleEdit(item)}
                     >
                       <TableCell className="font-medium dark:text-white">{item.item_name}</TableCell>
@@ -446,8 +477,8 @@ export default function InventoryItems() {
                       <TableCell className="text-sm dark:text-slate-300">{item.category}</TableCell>
                       <TableCell className="dark:text-slate-300">{item.unit_of_measure}</TableCell>
                       <TableCell className="dark:text-slate-300">{item.unit_size_definition}</TableCell>
-                      <TableCell className={isLowStock ? 'font-bold text-amber-700 dark:text-amber-400' : 'dark:text-white'}>
-                        {item.quantity_on_hand || 0}
+                      <TableCell className={lowStock ? 'font-bold text-amber-700 dark:text-amber-400' : 'dark:text-white'}>
+                        {isQuantityKnown(item.quantity_on_hand) ? item.quantity_on_hand : '—'}
                       </TableCell>
                       <TableCell className="dark:text-slate-300">{item.min_stock_level_units || '-'}</TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>

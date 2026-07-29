@@ -29,6 +29,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { describeError } from '@/lib/query-client';
 
 function generateTTSKUTagNumber() {
   const chars = '0123456789';
@@ -37,6 +38,56 @@ function generateTTSKUTagNumber() {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
+}
+
+// Escape hatch for special-order suppliers and products that aren't in the
+// catalogue yet. Shared by the manufacturer and product dropdowns.
+const OTHER_OPTION = '__other__';
+
+// Named so the error message can say what's actually missing instead of the old
+// blanket "Please fill in all required fields".
+const REQUIRED_SINGLE_FIELDS = [
+  { key: 'tt_sku_tag_number', label: 'TT SKU tag #' },
+  { key: 'manufacturer_id', label: 'manufacturer' },
+  { key: 'manufacturer_roll_number', label: "manufacturer's roll #" },
+  { key: 'product_id', label: 'product' },
+  { key: 'dye_lot', label: 'dye lot' },
+  { key: 'width_ft', label: 'width' },
+  { key: 'length_ft', label: 'length' },
+  { key: 'location', label: 'location' },
+  { key: 'purchase_order', label: 'PO #' },
+];
+
+const REQUIRED_RAPID_FIELDS = [
+  { key: 'manufacturer_id', label: 'manufacturer' },
+  { key: 'product_id', label: 'product' },
+  { key: 'dye_lot', label: 'dye lot' },
+  { key: 'width_ft', label: 'width' },
+  { key: 'length_ft', label: 'length' },
+  { key: 'purchase_order', label: 'PO #' },
+  { key: 'quantity', label: 'quantity' },
+];
+
+/**
+ * A plain truthiness check lets "0" and "-5" through, which created rolls with
+ * zero or negative footage that then corrupted every total in the app.
+ */
+function positiveNumberError(value, label) {
+  const n = parseFloat(value);
+  if (!Number.isFinite(n)) return `${label} must be a number.`;
+  if (n <= 0) return `${label} must be greater than zero.`;
+  return null;
+}
+
+/** When "Other" is picked, the typed name replaces the dropdown selection. */
+function customEntryError(form) {
+  if (form.manufacturer_id === OTHER_OPTION && !(form.manufacturer_name || '').trim()) {
+    return 'Type the manufacturer name.';
+  }
+  if (form.product_id === OTHER_OPTION && !(form.product_name || '').trim()) {
+    return 'Type the product name.';
+  }
+  return null;
 }
 
 export default function Receive() {
@@ -80,24 +131,36 @@ export default function Receive() {
   const [createdRolls, setCreatedRolls] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
 
+  // Keys name the shape of the fetch: sharing a bare ['products'] / ['locations']
+  // key between a filtered and an unfiltered query meant whichever page mounted
+  // first decided what every other page saw.
   const { data: products = [] } = useQuery({
-    queryKey: ['products'],
+    queryKey: ['products', 'active'],
     queryFn: () => base44.entities.Product.filter({ status: 'active' }),
   });
 
   const { data: manufacturers = [] } = useQuery({
     queryKey: ['manufacturers'],
-    queryFn: () => base44.entities.Vendor.list(),
+    queryFn: async () => {
+      const vendors = await base44.entities.Vendor.list('-created_date', 200);
+      return vendors.filter(v => (v.vendor_name || '').trim());
+    },
   });
 
   const { data: locations = [] } = useQuery({
-    queryKey: ['locations'],
+    queryKey: ['locations', 'turf'],
     queryFn: async () => {
-      const locs = await base44.entities.Location.list();
+      const locs = await base44.entities.Location.list('-created_date', 500);
       return locs
         .filter(l => l.designated_for === 'all' || l.designated_for === 'turf_only')
         .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     },
+  });
+
+  // Used to reject a tag that's already on another roll before we try to write it.
+  const { data: allRolls = [] } = useQuery({
+    queryKey: ['rolls'],
+    queryFn: () => base44.entities.Roll.list('-created_date', 5000),
   });
 
   const createRollMutation = useMutation({
@@ -128,25 +191,51 @@ export default function Receive() {
   });
 
   const handleSingleReceive = async () => {
-    const requiredFields = ['tt_sku_tag_number', 'manufacturer_id', 'manufacturer_roll_number', 'product_id', 'dye_lot', 'width_ft', 'length_ft', 'location', 'purchase_order'];
-    for (const field of requiredFields) {
-      if (!singleForm[field]) {
-        toast.error(`Please fill in all required fields`);
-        return;
-      }
+    const missing = REQUIRED_SINGLE_FIELDS.filter(f => !singleForm[f.key]);
+    if (missing.length > 0) {
+      toast.error(`Still needed: ${missing.map(f => f.label).join(', ')}`);
+      return;
+    }
+    // A truthiness check passes "0" and "-5", which produced rolls with zero or
+    // negative footage that then poisoned every total in the app.
+    const numberProblem =
+      positiveNumberError(singleForm.width_ft, 'Width') ||
+      positiveNumberError(singleForm.length_ft, 'Length');
+    if (numberProblem) {
+      toast.error(numberProblem);
+      return;
+    }
+    if (allRolls.some(r => r.tt_sku_tag_number === singleForm.tt_sku_tag_number.trim())) {
+      toast.error(
+        `Tag ${singleForm.tt_sku_tag_number} is already on another roll. Use a different tag.`,
+      );
+      return;
+    }
+    const customProblem = customEntryError(singleForm);
+    if (customProblem) {
+      toast.error(customProblem);
+      return;
     }
 
     setIsCreating(true);
-    
+
     const location = locations.find(l => l.id === singleForm.location);
+    let resolved;
+    try {
+      resolved = await resolveProduct(singleForm);
+    } catch (error) {
+      toast.error(`Couldn't add that product: ${describeError(error)}`);
+      setIsCreating(false);
+      return;
+    }
 
     const rollData = {
       tt_sku_tag_number: singleForm.tt_sku_tag_number,
       manufacturer_roll_number: singleForm.manufacturer_roll_number,
-      vendor_id: singleForm.manufacturer_id,
+      vendor_id: singleForm.manufacturer_id === OTHER_OPTION ? undefined : singleForm.manufacturer_id,
       vendor_name: singleForm.manufacturer_name,
-      product_id: singleForm.product_id,
-      product_name: singleForm.product_name,
+      product_id: resolved.product_id,
+      product_name: resolved.product_name,
       dye_lot: singleForm.dye_lot,
       width_ft: parseFloat(singleForm.width_ft),
       original_length_ft: parseFloat(singleForm.length_ft),
@@ -156,49 +245,78 @@ export default function Receive() {
       location_id: singleForm.location,
       location_name: location?.name || '',
       status: 'Available',
+      inventory_owner: 'TexasTurf',
       date_received: new Date().toISOString().split('T')[0],
       purchase_order: singleForm.purchase_order,
       notes: singleForm.notes
     };
 
-    const roll = await createRollMutation.mutateAsync(rollData);
-    setCreatedRolls([roll]);
-    setIsCreating(false);
-    toast.success(`Roll ${singleForm.tt_sku_tag_number} received successfully!`);
-    
-    // Reset form but keep manufacturer
-    setSingleForm(prev => ({
-      ...prev,
-      tt_sku_tag_number: '',
-      product_id: '',
-      product_name: '',
-      manufacturer_roll_number: '',
-      dye_lot: '',
-      length_ft: '100',
-      location: '',
-      purchase_order: '',
-      notes: ''
-    }));
+    // try/finally: a rejected write used to leave isCreating stuck true, so the
+    // button sat on "Creating…" forever and looked permanently dead.
+    try {
+      const roll = await createRollMutation.mutateAsync(rollData);
+      setCreatedRolls([roll]);
+      toast.success(`Roll ${singleForm.tt_sku_tag_number} received.`);
+
+      // Reset form but keep manufacturer
+      setSingleForm(prev => ({
+        ...prev,
+        tt_sku_tag_number: '',
+        product_id: '',
+        product_name: '',
+        manufacturer_roll_number: '',
+        dye_lot: '',
+        length_ft: '100',
+        location: '',
+        purchase_order: '',
+        notes: ''
+      }));
+    } catch {
+      // The mutation cache already surfaced the error to the user.
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const handleRapidReceive = async () => {
-    const requiredFields = ['manufacturer_id', 'product_id', 'dye_lot', 'width_ft', 'length_ft', 'purchase_order', 'quantity'];
-    for (const field of requiredFields) {
-      if (!rapidForm[field]) {
-        toast.error(`Please fill in all required fields`);
-        return;
-      }
+    const missing = REQUIRED_RAPID_FIELDS.filter(f => !rapidForm[f.key]);
+    if (missing.length > 0) {
+      toast.error(`Still needed: ${missing.map(f => f.label).join(', ')}`);
+      return;
     }
+    const numberProblem =
+      positiveNumberError(rapidForm.width_ft, 'Width') ||
+      positiveNumberError(rapidForm.length_ft, 'Length') ||
+      positiveNumberError(rapidForm.quantity, 'Quantity');
+    if (numberProblem) {
+      toast.error(numberProblem);
+      return;
+    }
+    const customProblem = customEntryError(rapidForm);
+    if (customProblem) {
+      toast.error(customProblem);
+      return;
+    }
+    const quantity = Math.floor(parseFloat(rapidForm.quantity));
 
     setIsCreating(true);
+    let resolved;
+    try {
+      resolved = await resolveProduct(rapidForm);
+    } catch (error) {
+      toast.error(`Couldn't add that product: ${describeError(error)}`);
+      setIsCreating(false);
+      return;
+    }
+
     const rollsToCreate = [];
-    for (let i = 0; i < rapidForm.quantity; i++) {
+    for (let i = 0; i < quantity; i++) {
       rollsToCreate.push({
         tt_sku_tag_number: generateTTSKUTagNumber(),
-        vendor_id: rapidForm.manufacturer_id,
+        vendor_id: rapidForm.manufacturer_id === OTHER_OPTION ? undefined : rapidForm.manufacturer_id,
         vendor_name: rapidForm.manufacturer_name,
-        product_id: rapidForm.product_id,
-        product_name: rapidForm.product_name,
+        product_id: resolved.product_id,
+        product_name: resolved.product_name,
         dye_lot: rapidForm.dye_lot,
         width_ft: parseFloat(rapidForm.width_ft),
         original_length_ft: parseFloat(rapidForm.length_ft),
@@ -206,28 +324,46 @@ export default function Receive() {
         roll_type: 'Parent',
         condition: 'New',
         status: 'AwaitingLocation',
+        inventory_owner: 'TexasTurf',
         date_received: new Date().toISOString().split('T')[0],
         purchase_order: rapidForm.purchase_order,
       });
     }
 
     const created = [];
-    for (const rollData of rollsToCreate) {
-      const roll = await createRollMutation.mutateAsync(rollData);
-      created.push(roll);
+    try {
+      for (const rollData of rollsToCreate) {
+        const roll = await createRollMutation.mutateAsync(rollData);
+        created.push(roll);
+      }
+      setCreatedRolls(created);
+      toast.success(
+        `${created.length} rolls added. Add location & manufacturer roll # on the Pending page to finish.`,
+        { duration: 6000 },
+      );
+      setRapidForm(prev => ({
+        ...prev,
+        dye_lot: '',
+        length_ft: '100',
+        quantity: 0,
+        purchase_order: '',
+      }));
+    } catch {
+      // Report what did land so the receiver knows the batch was partial.
+      setCreatedRolls(created);
+      if (created.length > 0) {
+        toast.warning(
+          `Only ${created.length} of ${rollsToCreate.length} rolls were created. Re-enter the remaining ${rollsToCreate.length - created.length}.`,
+          { duration: 10000 },
+        );
+        setRapidForm(prev => ({
+          ...prev,
+          quantity: rollsToCreate.length - created.length,
+        }));
+      }
+    } finally {
+      setIsCreating(false);
     }
-
-    setCreatedRolls(created);
-    setIsCreating(false);
-    toast.success(`${created.length} rolls added successfully! Add location & mfr roll # to complete.`, { duration: 5000 });
-
-    setRapidForm(prev => ({
-      ...prev,
-      dye_lot: '',
-      length_ft: '100',
-      quantity: 0,
-      purchase_order: '',
-    }));
   };
 
   const handleCsvUpload = async (e) => {
@@ -274,6 +410,23 @@ export default function Receive() {
       if (!row.purchase_order && !row.po) {
         errors.push({ row: i, error: 'Missing purchase order' });
       }
+      // Numeric columns were only checked for presence, so "abc" became NaN and
+      // "0"/"-3" silently produced unusable rolls.
+      for (const [label, raw] of [
+        ['width', row.width_ft || row.width],
+        ['length', row.length_ft || row.length],
+      ]) {
+        const n = parseFloat(raw);
+        if (raw && (!Number.isFinite(n) || n <= 0)) {
+          errors.push({ row: i, error: `${label} must be a number greater than zero` });
+        }
+      }
+      if (row.quantity) {
+        const q = parseFloat(row.quantity);
+        if (!Number.isFinite(q) || q < 1) {
+          errors.push({ row: i, error: 'quantity must be 1 or more' });
+        }
+      }
 
       row._rowNum = i;
       data.push(row);
@@ -281,6 +434,9 @@ export default function Receive() {
 
     setCsvData(data);
     setCsvErrors(errors);
+    // Clear the input's value so re-picking the same file still fires a change
+    // event after a failed or completed import.
+    e.target.value = '';
   };
 
   const processCsvImport = async () => {
@@ -316,12 +472,22 @@ export default function Receive() {
         continue;
       }
 
+      // Match the CSV's bin/row text to a real Location so the roll carries the
+      // location_name every other screen reads.
+      const matchedLocation = locations.find(
+        l =>
+          normalize(l.name) === normalize(`${locationBin}-${locationRow}`) ||
+          (String(l.bin) === String(locationBin) && normalize(l.row) === normalize(locationRow)),
+      );
+
       for (let i = 0; i < qty; i++) {
         const tt_sku_tag_number = generateTTSKUTagNumber();
 
         const rollData = {
           tt_sku_tag_number: tt_sku_tag_number,
-          manufacturer_roll_number: row.manufacturer_roll_number || tt_sku_tag_number,
+          // Left blank when the CSV omits it. Defaulting to the generated internal
+          // tag invented a manufacturer number that looked real and polluted search.
+          manufacturer_roll_number: row.manufacturer_roll_number || '',
           vendor_id: manufacturer.id,
           vendor_name: manufacturer.vendor_name,
           product_id: product.id,
@@ -334,7 +500,12 @@ export default function Receive() {
           condition: 'New',
           location_bin: locationBin,
           location_row: locationRow,
-          status: 'Available',
+          location_id: matchedLocation?.id,
+          location_name: matchedLocation?.name || `${locationBin}-${locationRow}`,
+          inventory_owner: 'TexasTurf',
+          // Without a manufacturer roll number the roll isn't fully identified, so
+          // route it through Pending Inventory instead of straight to Available.
+          status: row.manufacturer_roll_number ? 'Available' : 'AwaitingLocation',
           date_received: new Date().toISOString().split('T')[0],
           purchase_order: purchaseOrder
         };
@@ -356,18 +527,37 @@ export default function Receive() {
   };
 
   const handleProductSelect = (productId, formSetter) => {
+    if (productId === OTHER_OPTION) {
+      formSetter(prev => ({ ...prev, product_id: OTHER_OPTION, product_name: '' }));
+      return;
+    }
     const product = products.find(p => p.id === productId);
     if (product) {
       formSetter(prev => ({
         ...prev,
         product_id: productId,
         product_name: product.product_name,
-        length_ft: product.standard_roll_length_ft?.toString() || '100'
+        // Don't clobber a length the receiver already typed.
+        length_ft:
+          prev.length_ft && prev.length_ft !== '100'
+            ? prev.length_ft
+            : product.standard_roll_length_ft?.toString() || '100',
       }));
     }
   };
 
   const handleManufacturerSelect = (manufacturerId, formSetter) => {
+    if (manufacturerId === OTHER_OPTION) {
+      formSetter(prev => ({
+        ...prev,
+        manufacturer_id: OTHER_OPTION,
+        manufacturer_name: '',
+        width_ft: '',
+        product_id: OTHER_OPTION,
+        product_name: '',
+      }));
+      return;
+    }
     const manufacturer = manufacturers.find(m => m.id === manufacturerId);
     if (manufacturer) {
       formSetter(prev => ({
@@ -379,6 +569,40 @@ export default function Receive() {
         product_name: ''
       }));
     }
+  };
+
+  /**
+   * Resolve the product to receive against, creating a catalogue entry first when
+   * the receiver typed a one-off. Special orders (Realturf and similar) aren't in
+   * the catalogue, and a roll can't be received without a product to point at.
+   */
+  const resolveProduct = async (form) => {
+    if (form.product_id && form.product_id !== OTHER_OPTION) {
+      return { product_id: form.product_id, product_name: form.product_name };
+    }
+
+    const name = (form.product_name || '').trim();
+    const manufacturerName = (form.manufacturer_name || '').trim();
+
+    const existing = products.find(
+      p =>
+        (p.product_name || '').trim().toLowerCase() === name.toLowerCase() &&
+        (p.manufacturer_name || '').trim().toLowerCase() === manufacturerName.toLowerCase(),
+    );
+    if (existing) {
+      return { product_id: existing.id, product_name: existing.product_name };
+    }
+
+    const created = await base44.entities.Product.create({
+      product_name: name,
+      manufacturer_name: manufacturerName,
+      width_options: [parseFloat(form.width_ft)].filter(Number.isFinite),
+      standard_roll_length_ft: parseFloat(form.length_ft) || undefined,
+      status: 'active',
+      notes: 'Added while receiving a special-order roll.',
+    });
+    queryClient.invalidateQueries({ queryKey: ['products'] });
+    return { product_id: created.id, product_name: created.product_name };
   };
 
   // Filter products for a given manufacturer. Matches by ID when possible, falls
@@ -455,13 +679,23 @@ export default function Receive() {
                         {manufacturers.map(m => (
                           <SelectItem key={m.id} value={m.id}>{m.vendor_name}</SelectItem>
                         ))}
+                        <SelectItem value={OTHER_OPTION}>Other / special order…</SelectItem>
                       </SelectContent>
                     </Select>
+                    {singleForm.manufacturer_id === OTHER_OPTION && (
+                      <Input
+                        value={singleForm.manufacturer_name}
+                        onChange={e =>
+                          setSingleForm(p => ({ ...p, manufacturer_name: e.target.value }))
+                        }
+                        placeholder="Type the manufacturer, e.g. Realturf"
+                      />
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Product *</Label>
-                    <Select 
-                      value={singleForm.product_id} 
+                    <Select
+                      value={singleForm.product_id}
                       onValueChange={v => handleProductSelect(v, setSingleForm)}
                       disabled={!singleForm.manufacturer_id}
                     >
@@ -469,24 +703,33 @@ export default function Receive() {
                         <SelectValue placeholder={singleForm.manufacturer_id ? "Select product" : "Select manufacturer first"} />
                       </SelectTrigger>
                       <SelectContent>
-                        {(() => {
-                          const filtered = productsForManufacturer(singleForm.manufacturer_id, singleForm.manufacturer_name);
-                          if (filtered.length === 0) {
-                            return (
-                              <div className="px-3 py-6 text-sm text-slate-500 text-center">
-                                No products linked to this manufacturer.
-                                <br />
-                                Add products in the Turf admin page and set their manufacturer to{' '}
-                                <span className="font-medium">{singleForm.manufacturer_name || '—'}</span>.
-                              </div>
-                            );
-                          }
-                          return filtered.map(p => (
-                            <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
-                          ));
-                        })()}
+                        {productsForManufacturer(
+                          singleForm.manufacturer_id,
+                          singleForm.manufacturer_name,
+                        ).map(p => (
+                          <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
+                        ))}
+                        <SelectItem value={OTHER_OPTION}>Other / type it in…</SelectItem>
                       </SelectContent>
                     </Select>
+                    {singleForm.product_id === OTHER_OPTION && (
+                      <>
+                        <Input
+                          value={singleForm.product_name}
+                          onChange={e =>
+                            setSingleForm(p => ({ ...p, product_name: e.target.value }))
+                          }
+                          placeholder="Type the product, e.g. Moss"
+                        />
+                        <p className="text-xs text-slate-500">
+                          This will be added to the turf catalogue under{' '}
+                          <span className="font-medium">
+                            {singleForm.manufacturer_name || 'the manufacturer above'}
+                          </span>{' '}
+                          so it can be picked next time.
+                        </p>
+                      </>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -511,6 +754,8 @@ export default function Receive() {
                       <Label>Width (ft) *</Label>
                       <Input 
                         type="number"
+                        step="0.01"
+                        min="0"
                         value={singleForm.width_ft === 0 || singleForm.width_ft === '' ? '' : singleForm.width_ft}
                         onChange={e => setSingleForm(p => ({ ...p, width_ft: e.target.value === '' ? '' : e.target.value }))}
                         placeholder="Enter width"
@@ -520,6 +765,8 @@ export default function Receive() {
                       <Label>Length (ft) *</Label>
                       <Input 
                         type="number"
+                        step="0.01"
+                        min="0"
                         value={singleForm.length_ft === 0 || singleForm.length_ft === '' ? '' : singleForm.length_ft}
                         onChange={e => setSingleForm(p => ({ ...p, length_ft: e.target.value === '' ? '' : e.target.value }))}
                       />
@@ -594,13 +841,23 @@ export default function Receive() {
                         {manufacturers.map(m => (
                           <SelectItem key={m.id} value={m.id}>{m.vendor_name}</SelectItem>
                         ))}
+                        <SelectItem value={OTHER_OPTION}>Other / special order…</SelectItem>
                       </SelectContent>
                     </Select>
+                    {rapidForm.manufacturer_id === OTHER_OPTION && (
+                      <Input
+                        value={rapidForm.manufacturer_name}
+                        onChange={e =>
+                          setRapidForm(p => ({ ...p, manufacturer_name: e.target.value }))
+                        }
+                        placeholder="Type the manufacturer, e.g. Realturf"
+                      />
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Product *</Label>
-                    <Select 
-                      value={rapidForm.product_id} 
+                    <Select
+                      value={rapidForm.product_id}
                       onValueChange={v => handleProductSelect(v, setRapidForm)}
                       disabled={!rapidForm.manufacturer_id}
                     >
@@ -608,24 +865,24 @@ export default function Receive() {
                         <SelectValue placeholder={rapidForm.manufacturer_id ? "Select product" : "Select manufacturer first"} />
                       </SelectTrigger>
                       <SelectContent>
-                        {(() => {
-                          const filtered = productsForManufacturer(rapidForm.manufacturer_id, rapidForm.manufacturer_name);
-                          if (filtered.length === 0) {
-                            return (
-                              <div className="px-3 py-6 text-sm text-slate-500 text-center">
-                                No products linked to this manufacturer.
-                                <br />
-                                Add products in the Turf admin page and set their manufacturer to{' '}
-                                <span className="font-medium">{rapidForm.manufacturer_name || '—'}</span>.
-                              </div>
-                            );
-                          }
-                          return filtered.map(p => (
-                            <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
-                          ));
-                        })()}
+                        {productsForManufacturer(
+                          rapidForm.manufacturer_id,
+                          rapidForm.manufacturer_name,
+                        ).map(p => (
+                          <SelectItem key={p.id} value={p.id}>{p.product_name}</SelectItem>
+                        ))}
+                        <SelectItem value={OTHER_OPTION}>Other / type it in…</SelectItem>
                       </SelectContent>
                     </Select>
+                    {rapidForm.product_id === OTHER_OPTION && (
+                      <Input
+                        value={rapidForm.product_name}
+                        onChange={e =>
+                          setRapidForm(p => ({ ...p, product_name: e.target.value }))
+                        }
+                        placeholder="Type the product, e.g. Moss"
+                      />
+                    )}
                   </div>
 
                   <div className="grid grid-cols-4 gap-4">
@@ -640,6 +897,8 @@ export default function Receive() {
                       <Label>Width (ft) *</Label>
                       <Input 
                         type="number"
+                        step="0.01"
+                        min="0"
                         value={rapidForm.width_ft === 0 || rapidForm.width_ft === '' ? '' : rapidForm.width_ft}
                         onChange={e => setRapidForm(p => ({ ...p, width_ft: e.target.value === '' ? '' : e.target.value }))}
                         placeholder="Enter width"
@@ -649,17 +908,20 @@ export default function Receive() {
                       <Label>Length (ft) *</Label>
                       <Input 
                         type="number"
+                        step="0.01"
+                        min="0"
                         value={rapidForm.length_ft === 0 || rapidForm.length_ft === '' ? '' : rapidForm.length_ft}
                         onChange={e => setRapidForm(p => ({ ...p, length_ft: e.target.value === '' ? '' : e.target.value }))}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label>Quantity *</Label>
-                      <Input 
+                      <Input
                         type="number"
+                        step="1"
                         min="1"
                         value={rapidForm.quantity === 0 ? '' : rapidForm.quantity}
-                        onChange={e => setRapidForm(p => ({ ...p, quantity: e.target.value === '' ? '' : parseInt(e.target.value) }))}
+                        onChange={e => setRapidForm(p => ({ ...p, quantity: e.target.value }))}
                       />
                     </div>
                   </div>
@@ -683,7 +945,9 @@ export default function Receive() {
                     disabled={isCreating}
                     className="w-full bg-emerald-600 hover:bg-emerald-700"
                   >
-                    {isCreating ? 'Creating...' : `Generate ${rapidForm.quantity} Rolls`}
+                    {isCreating
+                      ? 'Creating…'
+                      : `Generate ${parseFloat(rapidForm.quantity) || 0} Rolls`}
                   </Button>
                 </CardContent>
               </Card>
@@ -772,8 +1036,14 @@ export default function Receive() {
                       <p className="text-sm text-emerald-600">
                         {roll.product_name} • {formatFeetInches(roll.width_ft)} × {formatFeetInches(roll.current_length_ft)}
                       </p>
-                      {roll.location_bin && roll.location_row ? (
-                        <p className="text-xs text-emerald-500 mt-1">Location: {roll.location_bin}{roll.location_row}</p>
+                      {/* Single receive stores location_name; only rapid entry leaves
+                          it blank. Checking bin/row alone told receivers who had
+                          picked a location that it was still missing. */}
+                      {roll.location_name || (roll.location_bin && roll.location_row) ? (
+                        <p className="text-xs text-emerald-500 mt-1">
+                          Location:{' '}
+                          {roll.location_name || `${roll.location_bin}-${roll.location_row}`}
+                        </p>
                       ) : (
                         <p className="text-xs text-red-600 mt-1 font-medium">⚠️ Location needed</p>
                       )}
