@@ -165,10 +165,14 @@ export default function Receive() {
 
   const createRollMutation = useMutation({
     mutationFn: async (rollData) => {
+      const user = await base44.auth.me();
       const roll = await base44.entities.Roll.create(rollData);
       await base44.entities.Transaction.create({
         transaction_type: 'ReceiveRoll',
         fulfillment_for: 'TexasTurf',
+        // Every other transaction writer records this; without it the receipt has
+        // no attribution and the Transactions page falls back to created_by.
+        performed_by: user?.full_name || user?.email,
         roll_id: roll.id,
         tt_sku_tag_number: rollData.tt_sku_tag_number,
         manufacturer_roll_number: rollData.manufacturer_roll_number,
@@ -186,7 +190,8 @@ export default function Receive() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      // Rapid entry lands rolls in AwaitingLocation, which is the Pending page's list.
+      queryClient.invalidateQueries({ queryKey: ['pendingRolls'] });
     }
   });
 

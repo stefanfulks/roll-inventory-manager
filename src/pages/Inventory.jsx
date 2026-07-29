@@ -87,14 +87,21 @@ export default function Inventory() {
     notes: ''
   });
 
+  // Filtering and searching happen client-side over this page, so the cap has to be
+  // high enough to cover the whole table — and when it's hit the user must be told,
+  // because a roll outside the window otherwise looks like it doesn't exist.
+  const ROLL_PAGE_LIMIT = 5000;
+
   const { data: rolls = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['rolls', sortColumn, sortDirection],
     queryFn: () => {
       const sortParam = sortDirection === 'desc' ? `-${sortColumn}` : sortColumn;
-      return base44.entities.Roll.list(sortParam, 1000);
+      return base44.entities.Roll.list(sortParam, ROLL_PAGE_LIMIT);
     },
     placeholderData: keepPreviousData,
   });
+
+  const hitRollLimit = rolls.length >= ROLL_PAGE_LIMIT;
 
   useQuery({
     queryKey: ['products'],
@@ -306,7 +313,15 @@ export default function Inventory() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800 dark:text-white">Inventory</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">{filteredRolls.length} rolls found</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">
+            {filteredRolls.length} rolls found
+            {hitRollLimit && (
+              <span className="text-amber-600 dark:text-amber-400">
+                {' '}— showing the newest {ROLL_PAGE_LIMIT.toLocaleString()} only; older rolls
+                aren't searchable here
+              </span>
+            )}
+          </p>
         </div>
         {selectedVisibleRolls.length > 0 && (
           <Button

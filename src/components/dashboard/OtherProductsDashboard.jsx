@@ -2,40 +2,47 @@ import React, { useState } from 'react';
 import { Package, AlertTriangle, Clock } from 'lucide-react';
 import StatCard from '@/components/ui/StatCard';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { format } from 'date-fns';
+import { DEFAULT_LONG_SITTING_DAYS } from '@/lib/costing';
+import { parseLocalDate, safeFormat } from '@/lib/dateHelpers';
 
 export default function OtherProductsDashboard({ inventoryItems, settings }) {
   const [showLowInventoryDialog, setShowLowInventoryDialog] = useState(false);
   const [showSittingGlueDialog, setShowSittingGlueDialog] = useState(false);
 
+  // A non-numeric stored value yields NaN, which makes every date comparison false
+  // and reports a reassuring zero instead of the real aging figure.
   const getSetting = (key, defaultValue) => {
     const setting = settings.find(s => s.setting_key === key);
-    return setting ? parseInt(setting.setting_value) : defaultValue;
+    const parsed = parseInt(setting?.setting_value, 10);
+    return Number.isFinite(parsed) ? parsed : defaultValue;
   };
 
-  const longSittingDays = getSetting('long_sitting_days', 180);
+  const longSittingDays = getSetting('long_sitting_days', DEFAULT_LONG_SITTING_DAYS);
 
-  // Low inventory items
-  const lowInventoryItems = inventoryItems.filter(item => 
-    item.min_stock_level_units && item.quantity_on_hand < item.min_stock_level_units
-  );
+  // An unknown quantity is not the same as zero: `undefined < min` is false, so
+  // these used to be skipped while the table still rendered them as "0 on hand".
+  const lowInventoryItems = inventoryItems.filter(item => {
+    const min = parseFloat(item.min_stock_level_units);
+    const qty = parseFloat(item.quantity_on_hand);
+    return Number.isFinite(min) && min > 0 && Number.isFinite(qty) && qty < min;
+  });
 
   // Sitting glue items
-  const today = new Date();
-  const cutoffDate = new Date(today.getTime() - longSittingDays * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(Date.now() - longSittingDays * 24 * 60 * 60 * 1000);
   const sittingGlueItems = inventoryItems.filter(item => {
     if (item.category !== 'Adhesives (Glue)') return false;
-    if (!item.date_received) return false;
-    const receivedDate = new Date(item.date_received);
+    const receivedDate = parseLocalDate(item.date_received);
+    if (!receivedDate) return false;
     return receivedDate < cutoffDate;
   });
 
   // Category breakdown
   const categoryBreakdown = inventoryItems.reduce((acc, item) => {
-    if (!acc[item.category]) {
-      acc[item.category] = 0;
+    const category = item.category || 'Uncategorised';
+    if (!acc[category]) {
+      acc[category] = 0;
     }
-    acc[item.category]++;
+    acc[category]++;
     return acc;
   }, {});
 
@@ -138,7 +145,10 @@ export default function OtherProductsDashboard({ inventoryItems, settings }) {
           </DialogHeader>
           <div className="space-y-2">
             {sittingGlueItems.map(item => {
-              const daysOld = Math.floor((today - new Date(item.date_received)) / (1000 * 60 * 60 * 24));
+              const received = parseLocalDate(item.date_received);
+              const daysOld = received
+                ? Math.floor((Date.now() - received.getTime()) / (1000 * 60 * 60 * 24))
+                : null;
               return (
                 <div key={item.id} className="p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
                   <div className="flex justify-between items-center">
@@ -151,9 +161,11 @@ export default function OtherProductsDashboard({ inventoryItems, settings }) {
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Received: {format(new Date(item.date_received), 'MMM d, yyyy')}
+                        Received: {safeFormat(item.date_received, 'MMM d, yyyy')}
                       </p>
-                      <p className="font-bold text-orange-600 dark:text-orange-400">{daysOld} days old</p>
+                      <p className="font-bold text-orange-600 dark:text-orange-400">
+                        {daysOld === null ? 'age unknown' : `${daysOld} days old`}
+                      </p>
                     </div>
                   </div>
                 </div>

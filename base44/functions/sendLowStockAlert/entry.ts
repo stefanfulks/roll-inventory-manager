@@ -11,8 +11,13 @@ Deno.serve(async (req) => {
 
     const { channel, lowStockProducts } = await req.json();
 
-    if (!channel || !lowStockProducts || lowStockProducts.length === 0) {
-      return Response.json({ error: 'Channel and low stock products are required' }, { status: 400 });
+    // An object with a `length` property passes a truthiness+length check and then
+    // throws inside .map, surfacing as an opaque 500.
+    if (!channel || !Array.isArray(lowStockProducts) || lowStockProducts.length === 0) {
+      return Response.json(
+        { error: 'channel (string) and lowStockProducts (non-empty array) are required' },
+        { status: 400 }
+      );
     }
 
     // Get Slack access token

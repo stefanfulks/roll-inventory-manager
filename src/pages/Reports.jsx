@@ -33,22 +33,22 @@ const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 const toCsv = (rows) => rows.map(row => row.map(csvCell).join(',')).join('\n');
 
 export default function Reports() {
-  const { data: rolls = [], isLoading: rollsLoading } = useQuery({
+  const { data: rolls = [], isLoading: rollsLoading, isError: rollsFailed } = useQuery({
     queryKey: ['rolls'],
     queryFn: () => base44.entities.Roll.list('-created_date', 5000),
   });
 
-  const { data: transactions = [], isLoading: txLoading } = useQuery({
+  const { data: transactions = [], isLoading: txLoading, isError: txFailed } = useQuery({
     queryKey: ['transactions'],
     queryFn: () => base44.entities.Transaction.list('-created_date', 5000),
   });
 
-  const { data: products = [], isLoading: productsLoading } = useQuery({
+  const { data: products = [], isLoading: productsLoading, isError: productsFailed } = useQuery({
     queryKey: ['products', 'all'],
     queryFn: () => base44.entities.Product.list('-created_date', 500),
   });
 
-  const { data: settings = [], isLoading: settingsLoading } = useQuery({
+  const { data: settings = [], isLoading: settingsLoading, isError: settingsFailed } = useQuery({
     queryKey: ['settings'],
     queryFn: () => base44.entities.Settings.list(),
   });
@@ -353,6 +353,22 @@ export default function Reports() {
   };
 
   const isLoading = rollsLoading || txLoading || productsLoading || settingsLoading;
+  const dataFailed = rollsFailed || txFailed || productsFailed || settingsFailed;
+
+  // Exporting from a failed fetch produces a plausible-looking but empty CSV, so
+  // nothing is offered until the data is actually there.
+  if (dataFailed) {
+    return (
+      <div className="p-8 text-center space-y-3">
+        <AlertTriangle className="h-10 w-10 text-red-500 mx-auto" />
+        <p className="text-lg font-medium text-slate-800">Couldn't load report data.</p>
+        <p className="text-sm text-slate-500">
+          Exports are disabled because they would come out empty. Reload to try again.
+        </p>
+        <Button variant="outline" onClick={() => window.location.reload()}>Reload</Button>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
