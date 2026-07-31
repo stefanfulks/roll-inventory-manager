@@ -8,7 +8,12 @@ import TurfDashboard from '@/components/dashboard/TurfDashboard';
 import OtherProductsDashboard from '@/components/dashboard/OtherProductsDashboard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings as SettingsIcon } from 'lucide-react';
+import { Settings as SettingsIcon, AlertTriangle, RefreshCw } from 'lucide-react';
+
+// Every list query is windowed — the dashboard totals are "across the most recent
+// N records", never a true all-time figure, so labels must say so.
+const ROLL_WINDOW = 5000;
+const TRANSACTION_WINDOW = 5000;
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
@@ -19,49 +24,49 @@ export default function Dashboard() {
     'roll_type', 'full_vs_partial_count', 'full_vs_partial_sqft'
   ]);
 
-  const { data: rolls = [], isLoading: loadingRolls } = useQuery({
+  const { data: rolls = [], isLoading: loadingRolls, isError: rollsFailed } = useQuery({
     queryKey: ['rolls'],
-    queryFn: () => base44.entities.Roll.list('-created_date', 1000),
+    queryFn: () => base44.entities.Roll.list('-created_date', ROLL_WINDOW),
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false
   });
 
-  const { data: transactions = [], isLoading: loadingTx } = useQuery({
+  const { data: transactions = [], isError: transactionsFailed } = useQuery({
     queryKey: ['transactions'],
-    queryFn: () => base44.entities.Transaction.list('-created_date', 1000),
+    queryFn: () => base44.entities.Transaction.list('-created_date', TRANSACTION_WINDOW),
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false
   });
 
-  const { data: products = [] } = useQuery({
-    queryKey: ['products'],
+  const { data: products = [], isError: productsFailed } = useQuery({
+    queryKey: ['products', 'all'],
     queryFn: () => base44.entities.Product.list(),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false
   });
 
-  const { data: inventoryItems = [] } = useQuery({
+  const { data: inventoryItems = [], isError: inventoryItemsFailed } = useQuery({
     queryKey: ['inventoryItems'],
     queryFn: () => base44.entities.InventoryItem.list(),
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false
   });
 
-  const { data: allocations = [] } = useQuery({
+  const { data: allocations = [], isError: allocationsFailed } = useQuery({
     queryKey: ['allocations'],
     queryFn: () => base44.entities.Allocation.list(),
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false
   });
 
-  const { data: jobs = [] } = useQuery({
+  const { data: jobs = [], isError: jobsFailed } = useQuery({
     queryKey: ['jobs'],
     queryFn: () => base44.entities.Job.list(),
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false
   });
 
-  const { data: settings = [] } = useQuery({
+  const { data: settings = [], isError: settingsFailed } = useQuery({
     queryKey: ['settings'],
     queryFn: () => base44.entities.Settings.list(),
     staleTime: 10 * 60 * 1000,
@@ -113,6 +118,36 @@ export default function Dashboard() {
     setVisibleCharts(charts);
     savePreferencesMutation.mutate(charts);
   };
+
+  const dataFailed =
+    rollsFailed ||
+    transactionsFailed ||
+    productsFailed ||
+    inventoryItemsFailed ||
+    allocationsFailed ||
+    jobsFailed ||
+    settingsFailed;
+
+  if (dataFailed) {
+    return (
+      <div className="bg-white dark:bg-[#2d2d2d] rounded-2xl p-12 border border-slate-100 dark:border-slate-700/50 shadow-sm text-center space-y-3">
+        <AlertTriangle className="h-8 w-8 mx-auto text-amber-500" />
+        <p className="font-semibold text-slate-800 dark:text-white">Couldn&apos;t load the dashboard</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+          One or more data sources failed to load. Nothing is shown because the totals
+          would read as zero rather than as an error.
+        </p>
+        <Button
+          variant="outline"
+          onClick={() => queryClient.refetchQueries()}
+          className="dark:border-slate-700 dark:text-slate-300"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
 
   if (loadingRolls) {
     return (

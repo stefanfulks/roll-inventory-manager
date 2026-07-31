@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  RotateCcw,
   Search,
   Check,
   CheckCircle2,
@@ -61,24 +60,29 @@ export default function Returns() {
   const [confirmationResults, setConfirmationResults] = useState([]);
 
   // ---- Data ----
+  // Filter client-side: the Base44 filter API takes plain equality maps, so the
+  // Mongo-style `{ status: { $in: [...] } }` this used to send matched nothing and
+  // the job dropdown came up empty.
+  const RETURNABLE_JOB_STATUSES = ['Dispatched', 'AwaitingReturnInventory', 'Completed'];
+
   const { data: jobs = [] } = useQuery({
     queryKey: ['jobs-for-returns'],
-    queryFn: () =>
-      base44.entities.Job.filter(
-        { status: { $in: ['Dispatched', 'AwaitingReturnInventory', 'Completed'] } },
-        '-created_date',
-        200,
-      ),
+    queryFn: async () => {
+      const all = await base44.entities.Job.list('-created_date', 1000);
+      return all.filter(j => RETURNABLE_JOB_STATUSES.includes(j.status));
+    },
   });
 
   const { data: allRolls = [] } = useQuery({
     queryKey: ['rolls'],
-    queryFn: () => base44.entities.Roll.list('-created_date', 1000),
+    queryFn: () => base44.entities.Roll.list('-created_date', 5000),
   });
 
+  // Explicit page size — an unbounded list only returned the first page, so older
+  // jobs looked like they had no allocated rolls at all.
   const { data: allAllocations = [] } = useQuery({
     queryKey: ['allocations'],
-    queryFn: () => base44.entities.Allocation.list(),
+    queryFn: () => base44.entities.Allocation.list('-created_date', 5000),
   });
 
   const { data: locations = [] } = useQuery({
@@ -98,7 +102,8 @@ export default function Returns() {
       a =>
         a.job_id === selectedJobId &&
         a.item_type === 'roll' &&
-        a.status !== 'Cancelled',
+        a.status !== 'Cancelled' &&
+        a.status !== 'Completed',
     );
     const rollIds = jobAllocations.flatMap(a => a.allocated_roll_ids || []);
     const rolls = allRolls.filter(r => rollIds.includes(r.id));
@@ -121,6 +126,7 @@ export default function Returns() {
         selected: false,
         condition: 'Good',
         returnedLength: '',
+        returnedWidth: '',
         isPartial: false,
         newTag: '',
         location_id: '',
@@ -145,6 +151,9 @@ export default function Returns() {
       returnedLength: !f.selected
         ? String(roll.current_length_ft || 0)
         : f.returnedLength,
+      returnedWidth: !f.selected
+        ? String(roll.width_ft || '')
+        : f.returnedWidth,
     });
   };
 
@@ -202,7 +211,20 @@ export default function Returns() {
         const loc = locations.find(l => l.id === f.location_id);
         const locName = loc?.name || '';
 
-        const isFull = returnedLengthNum >= (roll.current_length_ft || 0);
+        // Width can shrink if the crew trimmed the piece before sending it back.
+        const returnedWidthNum = parseFloat(f.returnedWidth);
+        const finalWidth = Number.isFinite(returnedWidthNum) && returnedWidthNum > 0
+          ? returnedWidthNum
+          : roll.width_ft;
+        if (finalWidth > (roll.width_ft || 0) + 0.01) {
+          throw new Error(
+            `Roll ${roll.tt_sku_tag_number}: returned width ${finalWidth} ft is wider than the roll that went out (${roll.width_ft} ft)`,
+          );
+        }
+
+        const isFull =
+          returnedLengthNum >= (roll.current_length_ft || 0) &&
+          finalWidth >= (roll.width_ft || 0);
         let targetRoll = roll;
         let createdChildRoll = null;
 
@@ -241,8 +263,9 @@ export default function Returns() {
             vendor_name: roll.vendor_name,
             product_id: roll.product_id,
             product_name: roll.product_name,
+            manufacturer_roll_number: roll.manufacturer_roll_number,
             dye_lot: roll.dye_lot,
-            width_ft: roll.width_ft,
+            width_ft: finalWidth,
             original_length_ft: returnedLengthNum,
             current_length_ft: returnedLengthNum,
             roll_type: 'Child',
@@ -256,6 +279,23 @@ export default function Returns() {
           };
           createdChildRoll = await base44.entities.Roll.create(childRollData);
           targetRoll = createdChildRoll;
+
+          // The parent physically left as one roll and only this remnant came back,
+          // so the parent is used up. Without this the parent kept its full length
+          // and the same turf was counted twice — once on the parent, once on the
+          // new child. Its job reference stays so reports show where it went.
+          await base44.entities.Roll.update(roll.id, {
+            status: ROLL_STATUS.CONSUMED,
+            current_length_ft: 0,
+            allocated_job_id: roll.allocated_job_id || selectedJobId,
+            notes: [
+              roll.notes,
+              `Used on job ${selectedJob?.job_number || selectedJobId}; ` +
+                `${returnedLengthNum} ft returned as child roll ${f.newTag.trim()}.`,
+            ]
+              .filter(Boolean)
+              .join(' '),
+          });
         }
 
         // Create return transaction
@@ -270,7 +310,7 @@ export default function Returns() {
           job_number: selectedJob?.job_number,
           product_name: roll.product_name,
           dye_lot: roll.dye_lot,
-          width_ft: roll.width_ft,
+          width_ft: finalWidth,
           length_change_ft: returnedLengthNum,
           length_before_ft: 0,
           length_after_ft: returnedLengthNum,
@@ -289,6 +329,23 @@ export default function Returns() {
           location: locName,
           childCreated: !!createdChildRoll,
         });
+      }
+
+      // Close out allocations whose every roll has now come back, so those rolls
+      // stop being offered for return and the job can actually be completed.
+      const handledRollIds = new Set(selectedRolls.map(r => r.id));
+      const jobAllocations = allAllocations.filter(
+        a =>
+          a.job_id === selectedJobId &&
+          a.item_type === 'roll' &&
+          a.status !== 'Cancelled' &&
+          a.status !== 'Completed',
+      );
+      for (const allocation of jobAllocations) {
+        const lineIds = allocation.allocated_roll_ids || [];
+        if (lineIds.length > 0 && lineIds.every(id => handledRollIds.has(id))) {
+          await base44.entities.Allocation.update(allocation.id, { status: 'Completed' });
+        }
       }
 
       return results;
@@ -514,6 +571,17 @@ export default function Returns() {
                 <div className="space-y-3">
                   {returnableRolls.map(roll => {
                     const f = getForm(roll.id);
+                    // A return is partial if either dimension came back smaller —
+                    // width used to be ignored here, so a trimmed piece was treated
+                    // as a full return and no child roll was created.
+                    const enteredLength = parseFloat(f.returnedLength);
+                    const enteredWidth = parseFloat(f.returnedWidth);
+                    const isPartialReturn =
+                      enteredLength > 0 &&
+                      (enteredLength < (roll.current_length_ft || 0) ||
+                        (Number.isFinite(enteredWidth) &&
+                          enteredWidth > 0 &&
+                          enteredWidth < (roll.width_ft || 0)));
                     return (
                       <div
                         key={roll.id}
@@ -557,7 +625,7 @@ export default function Returns() {
                                     type="number"
                                     min="0"
                                     max={roll.current_length_ft || 0}
-                                    step="0.1"
+                                    step="0.01"
                                     value={f.returnedLength}
                                     onChange={e => {
                                       const val = e.target.value;
@@ -570,8 +638,27 @@ export default function Returns() {
                                     }}
                                   />
                                   <p className="text-xs text-slate-500 mt-1">
-                                    Enter less than {formatFeetInches(roll.current_length_ft)} for a
-                                    partial return.
+                                    Went out at {formatFeetInches(roll.current_length_ft)}. Enter
+                                    less for a partial return.
+                                  </p>
+                                </div>
+
+                                {/* Returned width — the crew may have trimmed it narrower */}
+                                <div>
+                                  <Label className="text-xs">Returned width (ft)</Label>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max={roll.width_ft || undefined}
+                                    step="0.01"
+                                    value={f.returnedWidth}
+                                    onChange={e =>
+                                      updateForm(roll.id, { returnedWidth: e.target.value })
+                                    }
+                                  />
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    Went out at {formatFeetInches(roll.width_ft)}. Change it only
+                                    if the piece was trimmed narrower.
                                   </p>
                                 </div>
 
@@ -596,30 +683,28 @@ export default function Returns() {
                                 </div>
 
                                 {/* Partial return tag */}
-                                {parseFloat(f.returnedLength) > 0 &&
-                                  parseFloat(f.returnedLength) <
-                                    (roll.current_length_ft || 0) && (
-                                    <div className="md:col-span-2">
-                                      <Label className="text-xs">
-                                        New TT SKU tag number (for partial return child
-                                        roll)
-                                      </Label>
-                                      <Input
-                                        value={f.newTag}
-                                        onChange={e =>
-                                          updateForm(roll.id, {
-                                            newTag: e.target.value,
-                                          })
-                                        }
-                                        placeholder="Scan or enter the new pre-printed tag"
-                                        className="font-mono"
-                                      />
-                                      <p className="text-xs text-slate-500 mt-1">
-                                        Parent {roll.tt_sku_tag_number} will keep its
-                                        lineage. Child will inherit product/dye lot.
-                                      </p>
-                                    </div>
-                                  )}
+                                {isPartialReturn && (
+                                  <div className="md:col-span-2">
+                                    <Label className="text-xs">
+                                      New TT SKU tag number (for the child roll coming back)
+                                    </Label>
+                                    <Input
+                                      value={f.newTag}
+                                      onChange={e =>
+                                        updateForm(roll.id, {
+                                          newTag: e.target.value,
+                                        })
+                                      }
+                                      placeholder="Scan or enter the new pre-printed tag"
+                                      className="font-mono"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                      Parent {roll.tt_sku_tag_number} was used on this job and
+                                      will be marked Consumed. The piece coming back becomes
+                                      this new child roll.
+                                    </p>
+                                  </div>
+                                )}
 
                                 {/* Location */}
                                 <div>

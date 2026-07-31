@@ -15,6 +15,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { describeError } from '@/lib/query-client';
+import { ROLL_STATUS, TRANSACTION_TYPE } from '@/lib/rollStatus';
+
+// Locations named like "3-B" also fill the legacy bin/row fields so both
+// spellings of a roll's location agree; any other name clears them.
+const binRowFromName = (name) => {
+  const m = /^\s*([A-Za-z0-9]+)\s*-\s*([A-Za-z0-9]+)\s*$/.exec(name || '');
+  return m
+    ? { location_bin: m[1], location_row: m[2] }
+    : { location_bin: null, location_row: null };
+};
 
 export default function PendingInventory() {
   const queryClient = useQueryClient();
@@ -22,20 +33,64 @@ export default function PendingInventory() {
 
   const { data: pendingRolls = [], isLoading } = useQuery({
     queryKey: ['pendingRolls'],
-    queryFn: () => base44.entities.Roll.filter({ status: 'AwaitingLocation' }),
+    queryFn: () => base44.entities.Roll.filter({ status: ROLL_STATUS.AWAITING_LOCATION }),
+  });
+
+  const { data: locations = [] } = useQuery({
+    queryKey: ['locations', 'turf'],
+    queryFn: async () => {
+      const locs = await base44.entities.Location.list();
+      return locs
+        .filter(l => l.designated_for === 'all' || l.designated_for === 'turf_only')
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    },
   });
 
   const completeRollMutation = useMutation({
-    mutationFn: async ({ rollId, data }) => {
-      return await base44.entities.Roll.update(rollId, {
+    mutationFn: async ({ roll, data, previousTag }) => {
+      const user = await base44.auth.me();
+
+      await base44.entities.Roll.update(roll.id, {
         ...data,
-        status: 'Available'
+        status: ROLL_STATUS.AVAILABLE
       });
+
+      if (previousTag !== data.tt_sku_tag_number) {
+        // Rapid receive filed the ReceiveRoll transaction under a throwaway tag,
+        // so without this row the receipt is unreachable by the real tag.
+        await base44.entities.Transaction.create({
+          transaction_type: TRANSACTION_TYPE.ADJUSTMENT,
+          fulfillment_for: roll.inventory_owner,
+          roll_id: roll.id,
+          tt_sku_tag_number: data.tt_sku_tag_number,
+          manufacturer_roll_number: data.manufacturer_roll_number,
+          product_name: roll.product_name,
+          dye_lot: roll.dye_lot,
+          width_ft: roll.width_ft,
+          length_change_ft: 0,
+          length_before_ft: roll.current_length_ft,
+          length_after_ft: roll.current_length_ft,
+          location_to: data.location_name,
+          performed_by: user.full_name || user.email,
+          notes: `Tag reassigned: ${previousTag || '(none)'} → ${data.tt_sku_tag_number}. Shelved at ${data.location_name}.`,
+        });
+      }
+
+      return roll.id;
     },
-    onSuccess: () => {
+    onSuccess: (rollId) => {
       queryClient.invalidateQueries({ queryKey: ['pendingRolls'] });
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      setEditingRolls(prev => {
+        const next = { ...prev };
+        delete next[rollId];
+        return next;
+      });
       toast.success('Roll completed and added to inventory');
+    },
+    onError: (error) => {
+      toast.error(`Couldn't complete this roll: ${describeError(error)}`);
     }
   });
 
@@ -49,33 +104,43 @@ export default function PendingInventory() {
     }));
   };
 
-  const handleSaveRoll = (roll) => {
-    const edits = editingRolls[roll.id] || {};
-    const tt_sku_tag_number = edits.tt_sku_tag_number || '';
-    const manufacturer_roll_number = edits.manufacturer_roll_number || '';
-    const location = edits.location || '';
+  // Edits win, otherwise fall back to what the roll already carries — rolls
+  // arriving from a job return already have a real tag and roll number.
+  const fieldValue = (roll, field) =>
+    editingRolls[roll.id]?.[field] ?? roll[field] ?? '';
 
-    if (!tt_sku_tag_number || !manufacturer_roll_number || !location) {
-      toast.error('Please fill in TT SKU #, Manufacturer Roll #, and Location');
+  const handleSaveRoll = (roll) => {
+    const tt_sku_tag_number = String(fieldValue(roll, 'tt_sku_tag_number')).trim();
+    const manufacturer_roll_number = String(fieldValue(roll, 'manufacturer_roll_number')).trim();
+    const loc = locations.find(l => l.id === editingRolls[roll.id]?.location_id);
+
+    // location_id and location_name have to be written as a pair or the rest of
+    // the app reads a different bin than this page just assigned.
+    if (!loc) {
+      toast.error('Pick a location from the list before saving.');
       return;
     }
 
-    const [location_bin, location_row] = location.split('-');
-
     completeRollMutation.mutate({
-      rollId: roll.id,
+      roll,
+      previousTag: roll.tt_sku_tag_number || '',
       data: {
         tt_sku_tag_number,
         manufacturer_roll_number,
-        location_bin,
-        location_row,
+        location_id: loc.id,
+        location_name: loc.name,
+        ...binRowFromName(loc.name),
       }
     });
   };
 
-  const isRollComplete = (rollId) => {
-    const edits = editingRolls[rollId] || {};
-    return edits.tt_sku_tag_number && edits.manufacturer_roll_number && edits.location;
+  const isRollComplete = (roll) => {
+    const edits = editingRolls[roll.id] || {};
+    return Boolean(
+      fieldValue(roll, 'tt_sku_tag_number') &&
+      fieldValue(roll, 'manufacturer_roll_number') &&
+      edits.location_id
+    );
   };
 
   if (isLoading) {

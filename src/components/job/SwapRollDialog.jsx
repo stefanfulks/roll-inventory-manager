@@ -15,6 +15,8 @@ import { Search, RefreshCw } from 'lucide-react';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { toast } from 'sonner';
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { releaseRoll, syncRollToAllocation } from '@/lib/rollStatus';
+import { describeError } from '@/lib/query-client';
 
 export default function SwapRollDialog({ 
   open, 
@@ -29,39 +31,39 @@ export default function SwapRollDialog({
 
   const { data: availableRolls = [] } = useQuery({
     queryKey: ['available-rolls-for-swap', allocation?.product_name, allocation?.width_ft],
-    queryFn: () => base44.entities.Roll.filter({
-      status: 'Available',
-      product_name: allocation?.product_name,
-      width_ft: allocation?.width_ft
-    }),
+    queryFn: () => base44.entities.Roll.filter(
+      {
+        status: 'Available',
+        product_name: allocation?.product_name,
+        width_ft: allocation?.width_ft
+      },
+      '-created_date',
+      500
+    ),
     enabled: !!allocation,
   });
 
   const swapRollMutation = useMutation({
     mutationFn: async (replacementRoll) => {
       const user = await base44.auth.me();
-      
-      // 1. Return original roll to Available
-      await base44.entities.Roll.update(currentRoll.id, { 
-        status: 'Available',
-        allocated_job_id: null
-      });
 
-      // 2. Allocate replacement roll
-      await base44.entities.Roll.update(replacementRoll.id, { 
-        status: 'Allocated',
-        allocated_job_id: job.id
-      });
+      // The allocation is rewritten before either roll moves: if this write fails,
+      // both roll statuses are untouched and the old roll is still safely held.
+      const updatedRollIds = Array.from(new Set([
+        ...(allocation.allocated_roll_ids || []).filter(id => id !== currentRoll.id),
+        replacementRoll.id,
+      ]));
 
-      // 3. Update allocation to reference new roll
-      const updatedRollIds = allocation.allocated_roll_ids.filter(id => id !== currentRoll.id);
-      updatedRollIds.push(replacementRoll.id);
-      
       await base44.entities.Allocation.update(allocation.id, {
         allocated_roll_ids: updatedRollIds
       });
 
-      // 4. Create transactions
+      await releaseRoll(currentRoll.id);
+      // The replacement mirrors the allocation's real status, not a fixed 'Allocated' —
+      // swapping onto a Staged/Dispatched allocation must keep the roll in that phase.
+      await syncRollToAllocation(replacementRoll.id, allocation);
+
+      // Create transactions
       await base44.entities.Transaction.create({
         transaction_type: 'RollSwap',
         fulfillment_for: job.fulfillment_for,
@@ -94,13 +96,14 @@ export default function SwapRollDialog({
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
       queryClient.invalidateQueries({ queryKey: ['allocations'] });
       queryClient.invalidateQueries({ queryKey: ['job'] });
+      queryClient.invalidateQueries({ queryKey: ['available-rolls-for-swap'] });
       onOpenChange(false);
       setSearchTerm('');
       setSelectedReplacement(null);
       toast.success('Roll swapped successfully');
     },
     onError: (error) => {
-      toast.error('Failed to swap roll: ' + error.message);
+      toast.error('Failed to swap roll: ' + describeError(error));
     }
   });
 
@@ -202,7 +205,7 @@ export default function SwapRollDialog({
           </Button>
           <Button 
             onClick={handleSwap}
-            disabled={!selectedReplacement || swapRollMutation.isPending}
+            disabled={!currentRoll || !selectedReplacement || swapRollMutation.isPending}
             className="bg-emerald-600 hover:bg-emerald-700"
           >
             <RefreshCw className="h-4 w-4 mr-2" />

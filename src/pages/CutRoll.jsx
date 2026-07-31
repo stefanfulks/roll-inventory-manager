@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { 
   ArrowLeft, 
   Scissors, 
-  Package, 
   AlertTriangle,
   Check,
   Plus
@@ -22,12 +21,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import RollSearch from '@/components/inventory/RollSearch';
 import StatusBadge from '@/components/ui/StatusBadge';
 import OwnerBadge from '@/components/ui/OwnerBadge';
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { ROLL_STATUS, ALLOCATION_STATUS, createAllocationWithSync } from '@/lib/rollStatus';
+import { describeError } from '@/lib/query-client';
+
+// Every length in a cut goes through this once, so the parent debit, the child
+// credit and the transaction row can never disagree by a rounding tail.
+function roundFeet(value) {
+  return parseFloat(Number(value).toFixed(4));
+}
+
+// formatFeetInches rounds to the nearest inch, so a remnant under an inch shows
+// as 0' — it must not stay Available and be offered for cutting again.
+const MIN_REMNANT_FT = 1 / 12;
 
 function generateRollTag() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -56,30 +66,32 @@ export default function CutRoll() {
   const [selectedJobId, setSelectedJobId] = useState('');
   const [selectedLocationId, setSelectedLocationId] = useState('');
 
-  // Parse "feet-inches" input like "10-6" → 10.5 ft
+  // Parse "feet-inches" input like "10-6" → 10.5 ft. Anything that is neither the
+  // strict dash form nor a plain decimal is rejected — a partial parse would
+  // silently truncate ("10-6.5" → 10) and the user would never see the loss.
   const parseFeetInches = (input) => {
     const str = String(input).trim();
     const dashMatch = str.match(/^(\d+)-(\d+)$/);
     if (dashMatch) {
       const feet = parseInt(dashMatch[1], 10);
       const inches = parseInt(dashMatch[2], 10);
-      if (inches < 0 || inches > 11) return null;
-      return feet + inches / 12;
+      if (inches > 11) return null;
+      return roundFeet(feet + inches / 12);
     }
-    const num = parseFloat(str);
-    return isNaN(num) ? null : num;
+    if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(str)) return null;
+    return roundFeet(parseFloat(str));
   };
 
   const cutLengthNum = parseFeetInches(cutLength);
-  const cutLengthDisplay = cutLength ? (cutLengthNum !== null ? `${cutLengthNum.toFixed(4)} ft` : 'Invalid') : '';
   const [newTTSku, setNewTTSku] = useState('');
-  const [isCutting, setIsCutting] = useState(false);
   const [createdChild, setCreatedChild] = useState(null);
 
-  const { data: rolls = [], isLoading: loadingRolls } = useQuery({
-    queryKey: ['rolls'],
+  // This page needs a filtered slice of rolls, so it must NOT share the plain
+  // ['rolls'] key that Dashboard/Reports/Returns use for the full list.
+  const { data: rolls = [] } = useQuery({
+    queryKey: ['rolls', 'available-parents'],
     queryFn: () => base44.entities.Roll.filter(
-      { status: 'Available', roll_type: 'Parent' },
+      { status: ROLL_STATUS.AVAILABLE, roll_type: 'Parent' },
       '-created_date',
       500
     ),
@@ -100,18 +112,28 @@ export default function CutRoll() {
     },
   });
 
-  // Load preselected roll
+  // Load preselected roll — once only. Re-applying it on every refetch would
+  // snap a manually searched selection back to the URL's roll mid-cut.
+  const hasPreselected = useRef(false);
   useEffect(() => {
-    if (preselectedRollId && rolls.length > 0) {
-      const roll = rolls.find(r => r.id === preselectedRollId);
-      if (roll) setSelectedRoll(roll);
-    }
+    if (hasPreselected.current || !preselectedRollId || rolls.length === 0) return;
+    const roll = rolls.find(r => r.id === preselectedRollId);
+    if (!roll) return;
+    hasPreselected.current = true;
+    setSelectedRoll(roll);
   }, [preselectedRollId, rolls]);
 
   const handleSearch = (searchTerm) => {
-    const found = rolls.find(r => 
-      r.tt_sku_tag_number?.toLowerCase() === searchTerm.toLowerCase() ||
-      r.roll_tag?.toLowerCase() === searchTerm.toLowerCase()
+    const term = (searchTerm || '').trim();
+    // Clearing the box is a reset, not a failed lookup.
+    if (!term) {
+      setSelectedRoll(null);
+      setCreatedChild(null);
+      return;
+    }
+    const found = rolls.find(r =>
+      r.tt_sku_tag_number?.toLowerCase() === term.toLowerCase() ||
+      r.roll_tag?.toLowerCase() === term.toLowerCase()
     );
     if (found) {
       setSelectedRoll(found);
@@ -121,7 +143,153 @@ export default function CutRoll() {
     }
   };
 
-  const handleCut = async () => {
+  const cutMutation = useMutation({
+    mutationFn: async () => {
+      const childTag = generateRollTag();
+      const childSku = generateCustomSku(selectedRoll.inventory_owner, selectedRoll.product_name);
+      const lengthBefore = roundFeet(selectedRoll.current_length_ft);
+      const newParentLength = roundFeet(lengthBefore - cutLengthNum);
+      const parentStatus = newParentLength < MIN_REMNANT_FT ? ROLL_STATUS.CONSUMED : ROLL_STATUS.AVAILABLE;
+
+      // Determine TT SKU # based on destination
+      const ttSkuNumber = destination === 'inventory' ? newTTSku : childTag;
+
+      // Resolve location for special destinations
+      const specialDestinationMap = {
+        repairs: 'Repairs',
+        samples: 'Samples',
+        non_job: 'Non-Job Tasks',
+      };
+      let childLocationId = selectedRoll.location_id;
+      let childLocationName = selectedRoll.location_name;
+      if (specialDestinationMap[destination]) {
+        const loc = locations.find(l => l.name === specialDestinationMap[destination]);
+        if (loc) { childLocationId = loc.id; childLocationName = loc.name; }
+      } else if (destination === 'inventory' && selectedLocationId) {
+        const loc = locations.find(l => l.id === selectedLocationId);
+        if (loc) { childLocationId = loc.id; childLocationName = loc.name; }
+      }
+
+      // Debit the parent BEFORE the child exists: a failure here means no child,
+      // whereas a child created first and never debited doubles the footage.
+      await base44.entities.Roll.update(selectedRoll.id, {
+        current_length_ft: newParentLength,
+        status: parentStatus
+      });
+
+      const childData = {
+        roll_tag: childTag,
+        tt_sku_tag_number: ttSkuNumber,
+        custom_roll_sku: childSku,
+        inventory_owner: selectedRoll.inventory_owner,
+        product_id: selectedRoll.product_id,
+        product_name: selectedRoll.product_name,
+        dye_lot: selectedRoll.dye_lot,
+        width_ft: selectedRoll.width_ft,
+        original_length_ft: cutLengthNum,
+        current_length_ft: cutLengthNum,
+        roll_type: 'Child',
+        parent_roll_id: selectedRoll.id,
+        condition: selectedRoll.condition,
+        location_id: childLocationId,
+        location_name: childLocationName,
+        status: ROLL_STATUS.AVAILABLE,
+        date_received: new Date().toISOString().split('T')[0],
+      };
+
+      let childRoll;
+      try {
+        childRoll = await base44.entities.Roll.create(childData);
+      } catch (err) {
+        await base44.entities.Roll.update(selectedRoll.id, {
+          current_length_ft: lengthBefore,
+          status: selectedRoll.status || ROLL_STATUS.AVAILABLE
+        });
+        throw new Error(
+          `Nothing was cut — the child roll could not be created (${describeError(err)}). ` +
+          `${selectedRoll.tt_sku_tag_number || selectedRoll.roll_tag} was left at ${formatFeetInches(lengthBefore)}.`
+        );
+      }
+
+      // Create transaction
+      await base44.entities.Transaction.create({
+        transaction_type: 'CutCreateChild',
+        inventory_owner: selectedRoll.inventory_owner,
+        roll_id: selectedRoll.id,
+        roll_tag: selectedRoll.roll_tag,
+        parent_roll_id: selectedRoll.id,
+        child_roll_id: childRoll.id,
+        length_change_ft: -cutLengthNum,
+        length_before_ft: lengthBefore,
+        length_after_ft: newParentLength,
+        product_name: selectedRoll.product_name,
+        dye_lot: selectedRoll.dye_lot,
+        width_ft: selectedRoll.width_ft,
+        notes: `Cut ${formatFeetInches(cutLengthNum)} from ${selectedRoll.roll_tag} to create ${childTag}`
+      });
+
+      // If adding to job
+      let childStatus = childData.status;
+      if (destination === 'job' && selectedJobId) {
+        const selectedJob = jobs.find(j => j.id === selectedJobId);
+
+        // createAllocationWithSync stamps the child's status and allocated_job_id;
+        // item_type is what every rollStatus.js helper gates on to release it later.
+        await createAllocationWithSync({
+          job_id: selectedJobId,
+          job_name: selectedJob?.job_number || '',
+          product_name: childRoll.product_name,
+          width_ft: childRoll.width_ft,
+          dye_lot_preference: childRoll.dye_lot,
+          requested_length_ft: cutLengthNum,
+          allocated_length_ft: cutLengthNum,
+          allocated_roll_ids: [childRoll.id],
+          item_type: 'roll',
+          status: ALLOCATION_STATUS.STAGED
+        });
+        childStatus = ROLL_STATUS.STAGED;
+
+        await base44.entities.Transaction.create({
+          transaction_type: 'AssignToJob',
+          fulfillment_for: selectedRoll.inventory_owner,
+          roll_id: childRoll.id,
+          tt_sku_tag_number: childTag,
+          job_id: selectedJobId,
+          job_number: selectedJob?.job_number || '',
+          product_name: childRoll.product_name,
+          dye_lot: childRoll.dye_lot,
+          width_ft: childRoll.width_ft,
+          length_change_ft: 0,
+          notes: `Staged for job ${selectedJob?.job_number} after cut`
+        });
+      }
+
+      return {
+        child: { ...childData, status: childStatus, id: childRoll.id },
+        newParentLength,
+        parentStatus,
+      };
+    },
+    onSuccess: ({ child, newParentLength, parentStatus }) => {
+      // Invalidate the ['rolls'] prefix, not just this page's key, so the pages
+      // holding the unfiltered list see the cut too.
+      queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['allocations'] });
+
+      setCreatedChild(child);
+      setSelectedRoll({ ...selectedRoll, current_length_ft: newParentLength, status: parentStatus });
+      setCutLength('');
+      setNewTTSku('');
+      toast.success(`Created child roll ${child.tt_sku_tag_number}`);
+    },
+    onError: (err) => {
+      console.error('cutMutation failed:', err);
+      toast.error(`Cut failed: ${describeError(err)}`);
+    },
+  });
+
+  const handleCut = () => {
     if (!selectedRoll) {
       toast.error('Please select a roll');
       return;
@@ -142,119 +310,7 @@ export default function CutRoll() {
       return;
     }
 
-    setIsCutting(true);
-
-    const childTag = generateRollTag();
-    const childSku = generateCustomSku(selectedRoll.inventory_owner, selectedRoll.product_name);
-    const newParentLength = parseFloat((selectedRoll.current_length_ft - cutLengthNum).toFixed(4));
-
-    // Determine TT SKU # based on destination
-    const ttSkuNumber = destination === 'inventory' ? newTTSku : childTag;
-
-    // Resolve location for special destinations
-    const specialDestinationMap = {
-      repairs: 'Repairs',
-      samples: 'Samples',
-      non_job: 'Non-Job Tasks',
-    };
-    let childLocationId = selectedRoll.location_id;
-    let childLocationName = selectedRoll.location_name;
-    if (specialDestinationMap[destination]) {
-      const loc = locations.find(l => l.name === specialDestinationMap[destination]);
-      if (loc) { childLocationId = loc.id; childLocationName = loc.name; }
-    } else if (destination === 'inventory' && selectedLocationId) {
-      const loc = locations.find(l => l.id === selectedLocationId);
-      if (loc) { childLocationId = loc.id; childLocationName = loc.name; }
-    }
-
-    // Create child roll
-    const childData = {
-      roll_tag: childTag,
-      tt_sku_tag_number: ttSkuNumber,
-      custom_roll_sku: childSku,
-      inventory_owner: selectedRoll.inventory_owner,
-      product_id: selectedRoll.product_id,
-      product_name: selectedRoll.product_name,
-      dye_lot: selectedRoll.dye_lot,
-      width_ft: selectedRoll.width_ft,
-      original_length_ft: cutLengthNum,
-      current_length_ft: cutLengthNum,
-      roll_type: 'Child',
-      parent_roll_id: selectedRoll.id,
-      condition: selectedRoll.condition,
-      location_id: childLocationId,
-      location_name: childLocationName,
-      status: destination === 'job' && selectedJobId ? 'Staged' : 'Available',
-      date_received: new Date().toISOString().split('T')[0],
-    };
-
-    const childRoll = await base44.entities.Roll.create(childData);
-
-    // Update parent roll
-    const parentStatus = newParentLength <= 0 ? 'Consumed' : 'Available';
-    await base44.entities.Roll.update(selectedRoll.id, {
-      current_length_ft: newParentLength,
-      status: parentStatus
-    });
-
-    // Create transaction
-    await base44.entities.Transaction.create({
-      transaction_type: 'CutCreateChild',
-      inventory_owner: selectedRoll.inventory_owner,
-      roll_id: selectedRoll.id,
-      roll_tag: selectedRoll.roll_tag,
-      parent_roll_id: selectedRoll.id,
-      child_roll_id: childRoll.id,
-      length_change_ft: -cutLengthNum,
-      length_before_ft: selectedRoll.current_length_ft,
-      length_after_ft: newParentLength,
-      product_name: selectedRoll.product_name,
-      dye_lot: selectedRoll.dye_lot,
-      width_ft: selectedRoll.width_ft,
-      notes: `Cut ${cutLengthNum}ft from ${selectedRoll.roll_tag} to create ${childTag}`
-    });
-
-    // If adding to job
-    if (destination === 'job' && selectedJobId) {
-      const selectedJob = jobs.find(j => j.id === selectedJobId);
-      
-      await base44.entities.Allocation.create({
-        job_id: selectedJobId,
-        job_name: selectedJob?.job_number || '',
-        product_name: childRoll.product_name,
-        width_ft: childRoll.width_ft,
-        dye_lot_preference: childRoll.dye_lot,
-        requested_length_ft: cutLengthNum,
-        allocated_length_ft: cutLengthNum,
-        status: 'Staged',
-        allocated_roll_ids: [childRoll.id]
-      });
-
-      await base44.entities.Transaction.create({
-        transaction_type: 'AssignToJob',
-        fulfillment_for: selectedRoll.inventory_owner,
-        roll_id: childRoll.id,
-        tt_sku_tag_number: childTag,
-        job_id: selectedJobId,
-        job_number: selectedJob?.job_number || '',
-        product_name: childRoll.product_name,
-        dye_lot: childRoll.dye_lot,
-        width_ft: childRoll.width_ft,
-        length_change_ft: 0,
-        notes: `Staged for job ${selectedJob?.job_number} after cut`
-      });
-    }
-
-    queryClient.invalidateQueries({ queryKey: ['rolls'] });
-    queryClient.invalidateQueries({ queryKey: ['transactions'] });
-    queryClient.invalidateQueries({ queryKey: ['allocations'] });
-
-    setCreatedChild({ ...childData, id: childRoll.id });
-    setSelectedRoll({ ...selectedRoll, current_length_ft: newParentLength, status: parentStatus });
-    setCutLength('');
-    setNewTTSku('');
-    setIsCutting(false);
-    toast.success(`Created child roll ${ttSkuNumber}`);
+    cutMutation.mutate();
   };
 
   return (
@@ -349,9 +405,17 @@ export default function CutRoll() {
                 </p>
               )}
               {selectedRoll && cutLengthNum !== null && cutLengthNum > 0 && cutLengthNum <= selectedRoll.current_length_ft && (
-                <p className="text-sm text-emerald-600 font-medium">
-                  = {cutLengthNum.toFixed(4)}ft → parent will have {(selectedRoll.current_length_ft - cutLengthNum).toFixed(4)}ft remaining
-                </p>
+                <>
+                  <p className="text-sm text-emerald-600 font-medium">
+                    = {formatFeetInches(cutLengthNum)} ({cutLengthNum}ft) → parent will have {formatFeetInches(roundFeet(selectedRoll.current_length_ft - cutLengthNum))} remaining
+                  </p>
+                  {roundFeet(selectedRoll.current_length_ft - cutLengthNum) < MIN_REMNANT_FT && (
+                    <p className="text-sm text-amber-600 flex items-center gap-1">
+                      <AlertTriangle className="h-4 w-4" />
+                      Leaves under 1&quot; — the parent roll will be marked Consumed
+                    </p>
+                  )}
+                </>
               )}
             </div>
 
@@ -428,14 +492,14 @@ export default function CutRoll() {
                 !cutLength ||
                 cutLengthNum === null ||
                 cutLengthNum <= 0 ||
-                isCutting || 
+                cutMutation.isPending ||
                 cutLengthNum > (selectedRoll?.current_length_ft || 0) ||
                 (destination === 'inventory' && !newTTSku)
               }
               className="w-full h-12 bg-emerald-600 hover:bg-emerald-700"
             >
               <Scissors className="h-5 w-5 mr-2" />
-              {isCutting ? 'Cutting...' : 'Cut Roll'}
+              {cutMutation.isPending ? 'Cutting...' : 'Cut Roll'}
             </Button>
           </CardContent>
         </Card>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useQuery } from '@tanstack/react-query';
 import { createPageUrl } from '@/utils';
 import { Search, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -7,54 +8,73 @@ import { useNavigate } from 'react-router-dom';
 
 export default function GlobalSearch() {
   const [search, setSearch] = useState('');
-  const [results, setResults] = useState({ rolls: [], jobs: [], products: [] });
+  const [results, setResults] = useState({ rolls: [], jobs: [] });
   const [isSearching, setIsSearching] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const navigate = useNavigate();
 
+  const { data: products = [] } = useQuery({
+    queryKey: ['products', 'all'],
+    queryFn: () => base44.entities.Product.list('-created_date', 500),
+  });
+
+  const searchLower = search.trim().toLowerCase();
+
+  const productMatches = searchLower.length < 2
+    ? []
+    : products
+        .filter(p => p.product_name?.toLowerCase().includes(searchLower))
+        .slice(0, 3);
+
   useEffect(() => {
-    const searchData = async () => {
-      if (search.length < 2) {
-        setResults({ rolls: [], jobs: [], products: [] });
-        setIsExpanded(false);
-        return;
-      }
+    if (search.length < 2) {
+      setResults({ rolls: [], jobs: [] });
+      setIsExpanded(false);
+      return;
+    }
 
-      setIsExpanded(true);
-      setIsSearching(true);
+    // Clearing the timeout doesn't cancel a request that already went out, so an
+    // earlier, slower response could paint over a newer one. This flag drops it.
+    let cancelled = false;
+
+    setIsExpanded(true);
+    setIsSearching(true);
+
+    const debounce = setTimeout(async () => {
       try {
-        const searchLower = search.toLowerCase();
+        const term = search.toLowerCase();
 
-        const [rolls, jobs, products] = await Promise.all([
-          base44.entities.Roll.list('-created_date', 50),
-          base44.entities.Job.list('-created_date', 50),
-          base44.entities.Product.list()
+        // Scanning the tag of a roll received months ago has to find it, so the
+        // window covers the table rather than just the newest page.
+        const [rolls, jobs] = await Promise.all([
+          base44.entities.Roll.list('-created_date', 5000),
+          base44.entities.Job.list('-created_date', 2000),
         ]);
 
-        const filteredRolls = rolls.filter(r => 
-          r.tt_sku_tag_number?.toLowerCase().includes(searchLower) ||
-          r.roll_tag?.toLowerCase().includes(searchLower) ||
-          r.manufacturer_roll_number?.toLowerCase().includes(searchLower)
+        if (cancelled) return;
+
+        const filteredRolls = rolls.filter(r =>
+          r.tt_sku_tag_number?.toLowerCase().includes(term) ||
+          r.roll_tag?.toLowerCase().includes(term) ||
+          r.manufacturer_roll_number?.toLowerCase().includes(term)
         ).slice(0, 3);
 
-        const filteredJobs = jobs.filter(j => 
-          j.job_number?.toLowerCase().includes(searchLower) ||
-          j.customer_name?.toLowerCase().includes(searchLower)
+        const filteredJobs = jobs.filter(j =>
+          j.job_number?.toLowerCase().includes(term) ||
+          j.customer_name?.toLowerCase().includes(term)
         ).slice(0, 3);
 
-        const filteredProducts = products.filter(p => 
-          p.product_name?.toLowerCase().includes(searchLower)
-        ).slice(0, 3);
-
-        setResults({ rolls: filteredRolls, jobs: filteredJobs, products: filteredProducts });
+        setResults({ rolls: filteredRolls, jobs: filteredJobs });
       } catch (error) {
-        console.error('Search error:', error);
+        if (!cancelled) console.error('Search error:', error);
       }
-      setIsSearching(false);
-    };
+      if (!cancelled) setIsSearching(false);
+    }, 300);
 
-    const debounce = setTimeout(searchData, 300);
-    return () => clearTimeout(debounce);
+    return () => {
+      cancelled = true;
+      clearTimeout(debounce);
+    };
   }, [search]);
 
   const handleNavigate = (url) => {

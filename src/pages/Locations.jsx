@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import StatusBadge from '@/components/ui/StatusBadge';
+import { describeError } from '@/lib/query-client';
 
 export default function Locations() {
   const queryClient = useQueryClient();
@@ -51,12 +51,20 @@ export default function Locations() {
     notes: ''
   });
 
+  // ['locations'] elsewhere in the app drops other_inventory_only racks, and this
+  // screen must manage every row — reusing that key would hide them here and let
+  // the drag-reorder renumber sort_order over an incomplete set.
   const { data: locations = [], isLoading } = useQuery({
-    queryKey: ['locations'],
+    queryKey: ['locations', 'all'],
     queryFn: async () => {
       const locs = await base44.entities.Location.list('-created_date', 200);
       return locs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     },
+  });
+
+  const { data: allRolls = [] } = useQuery({
+    queryKey: ['rolls'],
+    queryFn: () => base44.entities.Roll.list('-created_date', 5000),
   });
 
   const saveMutation = useMutation({
@@ -71,6 +79,9 @@ export default function Locations() {
       queryClient.invalidateQueries({ queryKey: ['locations'] });
       handleCloseDialog();
       toast.success(editingLocation ? 'Location updated' : 'Location created');
+    },
+    onError: (error) => {
+      toast.error(`Couldn't save the location: ${describeError(error)}`);
     }
   });
 
@@ -86,8 +97,42 @@ export default function Locations() {
       const count = Array.isArray(locationIds) ? locationIds.length : 1;
       toast.success(`${count} location${count > 1 ? 's' : ''} deleted`);
       setSelectedLocations([]);
+    },
+    onError: (error) => {
+      queryClient.invalidateQueries({ queryKey: ['locations'] });
+      toast.error(`Couldn't delete: ${describeError(error)}`);
     }
   });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (items) => {
+      for (let i = 0; i < items.length; i++) {
+        if ((items[i].sort_order ?? null) === i) continue;
+        await base44.entities.Location.update(items[i].id, { sort_order: i });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['locations'] });
+      toast.success('Location order updated');
+    },
+    onError: (error) => {
+      // The optimistic cache still shows the order the user dragged to, which
+      // never landed — refetch so the list matches what's actually stored.
+      queryClient.invalidateQueries({ queryKey: ['locations'] });
+      toast.error(`Couldn't save the new order: ${describeError(error)}`);
+    }
+  });
+
+  const rollsAtLocations = (ids) =>
+    allRolls.filter(r => r.location_id && ids.includes(r.location_id)).length;
+
+  const confirmDelete = (ids, prompt) => {
+    const inUse = rollsAtLocations(ids);
+    const warning = inUse > 0
+      ? `${inUse} roll${inUse === 1 ? '' : 's'} still reference${inUse === 1 ? 's' : ''} ${ids.length > 1 ? 'these locations' : 'this location'} and will be left without one.\n\n`
+      : '';
+    return confirm(`${warning}${prompt}`);
+  };
 
   const handleOpenDialog = (location = null) => {
     if (location) {
@@ -120,26 +165,24 @@ export default function Locations() {
     }
     const dataToSave = { ...formData };
     if (!editingLocation) {
-      dataToSave.sort_order = locations.length;
+      // Counting rows collides after any deletion — two locations would share a
+      // sort_order and the list order would shuffle between loads.
+      dataToSave.sort_order =
+        locations.reduce((max, l) => Math.max(max, l.sort_order ?? -1), -1) + 1;
     }
     saveMutation.mutate(dataToSave);
   };
 
-  const handleDragEnd = async (result) => {
+  const handleDragEnd = (result) => {
     if (!result.destination) return;
-    
+    if (result.destination.index === result.source.index) return;
+
     const items = Array.from(locations);
     const [reorderedItem] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, reorderedItem);
-    
-    queryClient.setQueryData(['locations'], items);
-    
-    for (let i = 0; i < items.length; i++) {
-      await base44.entities.Location.update(items[i].id, { sort_order: i });
-    }
-    
-    queryClient.invalidateQueries({ queryKey: ['locations'] });
-    toast.success('Location order updated');
+
+    queryClient.setQueryData(['locations', 'all'], items);
+    reorderMutation.mutate(items);
   };
 
 
@@ -158,7 +201,7 @@ export default function Locations() {
               variant="outline"
               className="border-red-600 text-red-600 hover:bg-red-50"
               onClick={() => {
-                if (confirm(`Delete ${selectedLocations.length} selected location${selectedLocations.length > 1 ? 's' : ''}?`)) {
+                if (confirmDelete(selectedLocations, `Delete ${selectedLocations.length} selected location${selectedLocations.length > 1 ? 's' : ''}?`)) {
                   deleteMutation.mutate(selectedLocations);
                 }
               }}
@@ -331,7 +374,7 @@ export default function Locations() {
                                       variant="ghost" 
                                       size="sm"
                                       onClick={() => {
-                                        if (confirm('Delete this location?')) {
+                                        if (confirmDelete([location.id], 'Delete this location?')) {
                                           deleteMutation.mutate(location.id);
                                         }
                                       }}

@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import StatCard from '@/components/ui/StatCard';
 import { Package, Ruler, AlertTriangle, Clock, DollarSign, ArrowRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from '@/components/ui/button';
-import { format } from 'date-fns';
 import ForecastChart from '@/components/dashboard/ForecastChart';
-import { ROLL_STATUS } from '@/lib/rollStatus';
+import { ALLOCATION_STATUS, ROLL_STATUS } from '@/lib/rollStatus';
 import { useIsAdmin } from '@/lib/AuthContext';
 import {
+  DEFAULT_LONG_SITTING_DAYS,
   longSittingRolls,
   rollValue,
   inventoryValue,
@@ -33,8 +33,10 @@ export default function TurfDashboard({
   const navigate = useNavigate();
   const isAdmin = useIsAdmin();
   const [showLowInventoryDialog, setShowLowInventoryDialog] = useState(false);
-  const [showSittingInventoryDialog, setShowSittingInventoryDialog] = useState(false);
   const [shippedTimeRange, setShippedTimeRange] = useState('all');
+
+  const num = (value) => parseFloat(value) || 0;
+  const sqftOf = (roll) => num(roll.current_length_ft) * num(roll.width_ft);
 
   const allRolls = rolls;
   const availableRolls = allRolls.filter(r => r.status === ROLL_STATUS.AVAILABLE);
@@ -47,7 +49,7 @@ export default function TurfDashboard({
   // (overwhelmingly the common case since children are created via CutRoll).
   const childRolls = activeRolls.filter(r => r.roll_type === 'Child');
   const parentRolls = activeRolls.filter(r => r.roll_type !== 'Child');
-  const totalSqft = availableRolls.reduce((sum, r) => sum + r.current_length_ft * r.width_ft, 0);
+  const totalSqft = availableRolls.reduce((sum, r) => sum + sqftOf(r), 0);
 
   // Roll → product matcher with legacy-data fallback.
   // Match by product_id when both sides have it; fall back to product_name.
@@ -59,27 +61,22 @@ export default function TurfDashboard({
 
   const getSetting = (key, defaultValue) => {
     const setting = settings.find(s => s.setting_key === key);
-    return setting ? parseInt(setting.setting_value) : defaultValue;
+    const parsed = parseInt(setting?.setting_value, 10);
+    return Number.isFinite(parsed) ? parsed : defaultValue;
   };
 
-  const longSittingDays = getSetting('long_sitting_days', 180);
+  const longSittingDays = getSetting('long_sitting_days', DEFAULT_LONG_SITTING_DAYS);
 
   // Low inventory - products below minimum
   const lowInventoryProducts = products.filter(product => {
     if (!product.min_stock_level_ft) return false;
     const productRolls = availableRolls.filter(r => rollMatchesProduct(r, product));
-    const totalFt = productRolls.reduce((sum, r) => sum + r.current_length_ft, 0);
-    return totalFt < product.min_stock_level_ft;
+    const totalFt = productRolls.reduce((sum, r) => sum + num(r.current_length_ft), 0);
+    return totalFt < num(product.min_stock_level_ft);
   });
 
-  // Sitting inventory
-  const today = new Date();
-  const cutoffDate = new Date(today.getTime() - longSittingDays * 24 * 60 * 60 * 1000);
-  const sittingRolls = availableRolls.filter(r => {
-    if (!r.date_received) return false;
-    const receivedDate = new Date(r.date_received);
-    return receivedDate < cutoffDate;
-  });
+  // Sitting inventory — same rule and threshold as the table below the cards.
+  const sittingRolls = longSittingRolls(availableRolls, longSittingDays);
 
   // Shipped out total with time ranges
   const getTimeRangeCutoff = (range) => {
@@ -104,17 +101,23 @@ export default function TurfDashboard({
       const txDate = new Date(t.created_date);
       return txDate >= timeRangeCutoff;
     })
-    .reduce((sum, t) => sum + Math.abs(t.length_change_ft || 0) * (t.width_ft || 0), 0);
+    .reduce((sum, t) => sum + Math.abs(num(t.length_change_ft)) * num(t.width_ft), 0);
 
-  // Top products by jobs
+  // Top products by jobs. Allocations created by the cut-to-job flow omit item_type,
+  // so a roll allocation is one that either says 'roll' or carries roll ids.
+  const isRollAllocation = (alloc) =>
+    alloc.item_type === 'roll' ||
+    (!alloc.item_type && (alloc.allocated_roll_ids || []).length > 0);
+
   const productJobCount = {};
   allocations.forEach(alloc => {
-    if (alloc.product_name) {
-      if (!productJobCount[alloc.product_name]) {
-        productJobCount[alloc.product_name] = new Set();
-      }
-      productJobCount[alloc.product_name].add(alloc.job_id);
+    if (!alloc.product_name || !alloc.job_id) return;
+    if (!isRollAllocation(alloc)) return;
+    if (alloc.status === ALLOCATION_STATUS.CANCELLED) return;
+    if (!productJobCount[alloc.product_name]) {
+      productJobCount[alloc.product_name] = new Set();
     }
+    productJobCount[alloc.product_name].add(alloc.job_id);
   });
 
   const topProductsData = Object.entries(productJobCount)
@@ -146,7 +149,42 @@ export default function TurfDashboard({
 
   const lengthData = lengthBuckets.map(bucket => ({
     name: bucket.name,
-    value: availableRolls.filter(r => r.current_length_ft >= bucket.min && r.current_length_ft < bucket.max).length
+    value: availableRolls.filter(r => {
+      const length = num(r.current_length_ft);
+      return length >= bucket.min && length < bucket.max;
+    }).length
+  }));
+
+  // Uncut vs remnant is a length measurement, not a parent/child one: a Parent roll
+  // that has been cut into is a remnant here. Rolls with no original length can't be
+  // classified at all, so they're left out rather than counted as uncut.
+  const isUncut = (roll) => {
+    const original = num(roll.original_length_ft);
+    if (original <= 0) return null;
+    return num(roll.current_length_ft) >= original * 0.95;
+  };
+
+  const uncutVsRemnantByProduct = (amountFor) =>
+    Object.values(
+      availableRolls.reduce((acc, r) => {
+        const uncut = isUncut(r);
+        if (uncut === null) return acc;
+        const name = r.product_name || 'Unspecified product';
+        if (!acc[name]) {
+          acc[name] = { name, uncut: 0, remnant: 0 };
+        }
+        acc[name][uncut ? 'uncut' : 'remnant'] += amountFor(r);
+        return acc;
+      }, {})
+    )
+      .sort((a, b) => b.uncut + b.remnant - (a.uncut + a.remnant))
+      .slice(0, 8);
+
+  const uncutCountData = uncutVsRemnantByProduct(() => 1);
+  const uncutSqftData = uncutVsRemnantByProduct(sqftOf).map(d => ({
+    ...d,
+    uncut: Math.round(d.uncut),
+    remnant: Math.round(d.remnant),
   }));
 
   return (
@@ -160,7 +198,7 @@ export default function TurfDashboard({
           <StatCard
             title="Total Rolls"
             value={totalRolls.toLocaleString()}
-            subtitle={`${parentRolls.length} parent, ${childRolls.length} child`}
+            subtitle={`All rolls except Consumed/Scrapped — ${parentRolls.length} parent, ${childRolls.length} child`}
             icon={Package}
             iconBg="bg-emerald-100"
             iconColor="text-emerald-600"
@@ -173,8 +211,8 @@ export default function TurfDashboard({
         >
           <StatCard
             title="Total Sq Ft in Stock"
-            value={totalSqft.toLocaleString()}
-            subtitle={`${availableRolls.length} available rolls`}
+            value={Math.round(totalSqft).toLocaleString()}
+            subtitle={`Available rolls only — ${availableRolls.length} rolls`}
             icon={Ruler}
             iconBg="bg-blue-100"
             iconColor="text-blue-600"
@@ -188,7 +226,7 @@ export default function TurfDashboard({
           <StatCard
             title="Low Inventory"
             value={lowInventoryProducts.length}
-            subtitle="Products below minimum"
+            subtitle="Products below minimum in Available stock"
             icon={AlertTriangle}
             iconBg={lowInventoryProducts.length > 0 ? "bg-amber-100" : "bg-slate-100"}
             iconColor={lowInventoryProducts.length > 0 ? "text-amber-600" : "text-slate-400"}
@@ -202,7 +240,7 @@ export default function TurfDashboard({
           <StatCard
             title="Sitting Inventory"
             value={sittingRolls.length}
-            subtitle={`Over ${longSittingDays} days old`}
+            subtitle={`Available rolls over ${longSittingDays} days old`}
             icon={Clock}
             iconBg={sittingRolls.length > 0 ? "bg-orange-100" : "bg-slate-100"}
             iconColor={sittingRolls.length > 0 ? "text-orange-600" : "text-slate-400"}
@@ -231,12 +269,12 @@ export default function TurfDashboard({
             className="cursor-pointer hover:opacity-80 transition-opacity"
           >
             <StatCard
-              title="Value Sitting 90+ Days"
+              title={`Value Sitting ${longSittingDays}+ Days`}
               value={formatCurrency(
                 inventoryValue(
                   availableRolls.filter(r => {
                     const d = daysSinceReceived(r);
-                    return d != null && d >= 90;
+                    return d != null && d >= longSittingDays;
                   }),
                   products,
                 ),
@@ -252,7 +290,7 @@ export default function TurfDashboard({
 
       {/* Rolls that need to move — top 10 oldest */}
       {(() => {
-        const top = longSittingRolls(availableRolls, 30).slice(0, 10);
+        const top = sittingRolls.slice(0, 10);
         if (top.length === 0) return null;
         return (
           <div className="bg-white dark:bg-[#2d2d2d] rounded-2xl p-6 border border-slate-100 dark:border-slate-700/50 shadow-sm">
@@ -262,7 +300,7 @@ export default function TurfDashboard({
                   Rolls that need to move
                 </h3>
                 <p className="text-sm text-slate-500 mt-0.5">
-                  Available inventory sorted by age — oldest first.
+                  Available inventory over {longSittingDays} days old, oldest first.
                 </p>
               </div>
               <Button
@@ -382,13 +420,14 @@ export default function TurfDashboard({
             <div className="flex items-center justify-center h-48">
               <div className="text-center">
                 <div className="text-5xl font-bold text-blue-600 dark:text-blue-400 mb-2">
-                  {shippedOutSqft.toLocaleString()}
+                  {Math.round(shippedOutSqft).toLocaleString()}
                 </div>
                 <div className="text-slate-600 dark:text-slate-300">Square Feet Shipped</div>
                 <div className="text-sm text-slate-400 mt-2">
-                  {shippedTimeRange === 'all' ? 'All-time total' : 
-                   shippedTimeRange === 'week' ? 'Last 7 days' :
-                   shippedTimeRange === 'month' ? 'Last 30 days' : 'Last year'}
+                  {shippedTimeRange === 'all'
+                    ? `Across the ${transactions.length.toLocaleString()} most recent transactions`
+                    : shippedTimeRange === 'week' ? 'Last 7 days' :
+                      shippedTimeRange === 'month' ? 'Last 30 days' : 'Last year'}
                 </div>
               </div>
             </div>
@@ -410,9 +449,12 @@ export default function TurfDashboard({
                     fill="#10b981"
                     radius={[0, 4, 4, 0]}
                     style={{ cursor: 'pointer' }}
-                    onClick={(data) =>
-                      navigate(createPageUrl(`Inventory?product=${encodeURIComponent(data.name)}`))
-                    }
+                    onClick={(data) => {
+                      const name = data?.payload?.name || data?.name;
+                      if (name) {
+                        navigate(createPageUrl(`Inventory?product=${encodeURIComponent(name)}`));
+                      }
+                    }}
                   />
                 </BarChart>
               </ResponsiveContainer>
@@ -480,23 +522,11 @@ export default function TurfDashboard({
 
         {visibleCharts.includes('full_vs_partial_count') && (
           <div className="bg-white dark:bg-[#2d2d2d] rounded-2xl p-6 border border-slate-100 dark:border-slate-700/50 shadow-sm">
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-white mb-4">Full vs Partial Rolls by Turf</h3>
+            <h3 className="text-lg font-semibold text-slate-800 dark:text-white mb-4">Uncut vs Remnant Rolls by Turf</h3>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={Object.entries(
-                    availableRolls.reduce((acc, r) => {
-                      if (!acc[r.product_name]) {
-                        acc[r.product_name] = { name: r.product_name, full: 0, partial: 0 };
-                      }
-                      if (r.current_length_ft >= r.original_length_ft * 0.95) {
-                        acc[r.product_name].full++;
-                      } else {
-                        acc[r.product_name].partial++;
-                      }
-                      return acc;
-                    }, {})
-                  ).map(([_, data]) => data).sort((a, b) => b.full + b.partial - (a.full + a.partial)).slice(0, 8)}
+                  data={uncutCountData}
                   layout="vertical"
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -505,20 +535,20 @@ export default function TurfDashboard({
                   <Tooltip />
                   <Legend />
                   <Bar
-                    dataKey="full"
+                    dataKey="uncut"
                     stackId="a"
                     fill="#10b981"
-                    name="Full Rolls"
+                    name="Uncut Rolls"
                     style={{ cursor: 'pointer' }}
                     onClick={(data) =>
                       navigate(createPageUrl(`Inventory?product=${encodeURIComponent(data.name)}&status=${ROLL_STATUS.AVAILABLE}`))
                     }
                   />
                   <Bar
-                    dataKey="partial"
+                    dataKey="remnant"
                     stackId="a"
                     fill="#f59e0b"
-                    name="Partial Rolls"
+                    name="Remnants"
                     style={{ cursor: 'pointer' }}
                     onClick={(data) =>
                       navigate(createPageUrl(`Inventory?product=${encodeURIComponent(data.name)}&status=${ROLL_STATUS.AVAILABLE}`))
@@ -532,24 +562,11 @@ export default function TurfDashboard({
 
         {visibleCharts.includes('full_vs_partial_sqft') && (
           <div className="bg-white dark:bg-[#2d2d2d] rounded-2xl p-6 border border-slate-100 dark:border-slate-700/50 shadow-sm">
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-white mb-4">Full vs Partial Sq Ft by Turf</h3>
+            <h3 className="text-lg font-semibold text-slate-800 dark:text-white mb-4">Uncut vs Remnant Sq Ft by Turf</h3>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={Object.entries(
-                    availableRolls.reduce((acc, r) => {
-                      if (!acc[r.product_name]) {
-                        acc[r.product_name] = { name: r.product_name, full: 0, partial: 0 };
-                      }
-                      const sqft = r.current_length_ft * r.width_ft;
-                      if (r.current_length_ft >= r.original_length_ft * 0.95) {
-                        acc[r.product_name].full += sqft;
-                      } else {
-                        acc[r.product_name].partial += sqft;
-                      }
-                      return acc;
-                    }, {})
-                  ).map(([_, data]) => ({ ...data, full: Math.round(data.full), partial: Math.round(data.partial) })).sort((a, b) => b.full + b.partial - (a.full + a.partial)).slice(0, 8)}
+                  data={uncutSqftData}
                   layout="vertical"
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -558,20 +575,20 @@ export default function TurfDashboard({
                   <Tooltip formatter={(value) => `${value.toLocaleString()} sq ft`} />
                   <Legend />
                   <Bar
-                    dataKey="full"
+                    dataKey="uncut"
                     stackId="a"
                     fill="#10b981"
-                    name="Full Rolls"
+                    name="Uncut Rolls"
                     style={{ cursor: 'pointer' }}
                     onClick={(data) =>
                       navigate(createPageUrl(`Inventory?product=${encodeURIComponent(data.name)}&status=${ROLL_STATUS.AVAILABLE}`))
                     }
                   />
                   <Bar
-                    dataKey="partial"
+                    dataKey="remnant"
                     stackId="a"
                     fill="#f59e0b"
-                    name="Partial Rolls"
+                    name="Remnants"
                     style={{ cursor: 'pointer' }}
                     onClick={(data) =>
                       navigate(createPageUrl(`Inventory?product=${encodeURIComponent(data.name)}&status=${ROLL_STATUS.AVAILABLE}`))
@@ -593,7 +610,7 @@ export default function TurfDashboard({
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {lowInventoryProducts.map(product => {
               const productRolls = availableRolls.filter(r => rollMatchesProduct(r, product));
-              const totalFt = productRolls.reduce((sum, r) => sum + r.current_length_ft, 0);
+              const totalFt = productRolls.reduce((sum, r) => sum + num(r.current_length_ft), 0);
               return (
                 <div key={product.id} className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
                   <div className="flex justify-between items-start">
@@ -603,43 +620,6 @@ export default function TurfDashboard({
                         Current: <span className="font-medium text-amber-700 dark:text-amber-400">{totalFt.toFixed(0)} ft</span>
                         {' '} / Minimum: <span className="font-medium">{product.min_stock_level_ft} ft</span>
                       </p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Sitting Inventory Dialog */}
-      <Dialog open={showSittingInventoryDialog} onOpenChange={setShowSittingInventoryDialog}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto dark:bg-[#2d2d2d] dark:border-slate-700/50">
-          <DialogHeader>
-            <DialogTitle className="dark:text-white">Sitting Inventory - {sittingRolls.length} rolls over {longSittingDays} days</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
-            {sittingRolls.map(roll => {
-              const daysOld = Math.floor((today - new Date(roll.date_received)) / (1000 * 60 * 60 * 24));
-              return (
-                <div key={roll.id} className="p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <Link 
-                        to={createPageUrl(`RollDetail?id=${roll.id}`)}
-                        className="font-mono font-medium text-slate-800 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline"
-                      >
-                        {roll.tt_sku_tag_number || roll.roll_tag}
-                      </Link>
-                      <p className="text-sm text-slate-600 dark:text-slate-300">
-                        {roll.product_name} • {formatFeetInches(roll.current_length_ft)} • {roll.location_bin && roll.location_row ? `${roll.location_bin}-${roll.location_row}` : 'No location'}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Received: {format(new Date(roll.date_received), 'MMM d, yyyy')}
-                      </p>
-                      <p className="font-bold text-orange-600 dark:text-orange-400">{daysOld} days old</p>
                     </div>
                   </div>
                 </div>

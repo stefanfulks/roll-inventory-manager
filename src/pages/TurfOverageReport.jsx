@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
-import { 
-  Calendar,
+import {
   Download,
   TrendingUp,
   TrendingDown
@@ -31,29 +30,43 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO } from 'date-fns';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { safeFormat, parseLocalDate } from '@/lib/dateHelpers';
+import { ROLL_STATUS, ALLOCATION_STATUS } from '@/lib/rollStatus';
+
+/** Always-quoted CSV cell with internal quotes doubled. */
+const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+const toCsv = (rows) => rows.map(row => row.map(csvCell).join(',')).join('\n');
 
 export default function TurfOverageReport() {
   const [dateRange, setDateRange] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  const { data: jobs = [], isLoading: loadingJobs } = useQuery({
+  const { data: jobs = [], isLoading: loadingJobs, isError: jobsError } = useQuery({
     queryKey: ['jobs'],
-    queryFn: () => base44.entities.Job.list(),
+    queryFn: () => base44.entities.Job.list('-created_date', 1000),
   });
 
-  const { data: transactions = [], isLoading: loadingTx } = useQuery({
+  const { data: transactions = [], isLoading: loadingTx, isError: txError } = useQuery({
     queryKey: ['transactions'],
-    queryFn: () => base44.entities.Transaction.list('-created_date', 2000),
+    queryFn: () => base44.entities.Transaction.list('-created_date', 5000),
   });
 
-  const { data: allocations = [] } = useQuery({
+  const { data: rolls = [] } = useQuery({
+    queryKey: ['rolls'],
+    queryFn: () => base44.entities.Roll.list('-created_date', 5000),
+  });
+
+  const { data: allocations = [], isLoading: loadingAllocs, isError: allocError } = useQuery({
     queryKey: ['allocations'],
-    queryFn: () => base44.entities.Allocation.list(),
+    queryFn: () => base44.entities.Allocation.list('-created_date', 5000),
   });
 
-  const isLoading = loadingJobs || loadingTx;
+  // Allocations must be in the gate: rendering before they arrive showed every job
+  // with zero allocated, i.e. a fabricated 100% underage.
+  const isLoading = loadingJobs || loadingTx || loadingAllocs;
+  const isError = jobsError || txError || allocError;
 
   // Filter jobs based on date range
   const filteredJobs = jobs.filter(job => {
@@ -81,18 +94,51 @@ export default function TurfOverageReport() {
     return true;
   });
 
+  const scrappedRollIds = new Set(
+    rolls
+      .filter(r => r.status === ROLL_STATUS.SCRAPPED)
+      .map(r => r.id),
+  );
+
   // Calculate variance for each job
   const jobVariances = filteredJobs.map(job => {
-    const jobAllocations = allocations.filter(a => a.job_id === job.id && a.item_type === 'roll');
-    const totalAllocated = jobAllocations
-      .filter(a => a.status === 'Dispatched')
-      .reduce((sum, a) => sum + (a.requested_length_ft || 0), 0);
-    
-    const returnTx = transactions.filter(t => 
+    // Derived from the dispatch transactions rather than allocation status. A job
+    // can reach Completed without ever passing through Dispatch, and rolls added
+    // after dispatch stay Planned — either way an allocation-status filter reported
+    // nothing shipped and turned the whole job into a phantom underage.
+    const sendTx = transactions.filter(
+      t => t.job_id === job.id && t.transaction_type === 'SendOutToJob',
+    );
+    let totalAllocated = sendTx.reduce(
+      (sum, t) => sum + Math.abs(parseFloat(t.length_change_ft) || 0),
+      0,
+    );
+
+    if (totalAllocated === 0) {
+      // No dispatch transactions at all (older jobs): fall back to the allocation
+      // records. A missing item_type means 'roll' when roll ids are present.
+      const jobAllocations = allocations.filter(
+        a =>
+          a.job_id === job.id &&
+          (a.item_type === 'roll' ||
+            (!a.item_type && (a.allocated_roll_ids || []).length > 0)) &&
+          a.status !== ALLOCATION_STATUS.CANCELLED,
+      );
+      totalAllocated = jobAllocations.reduce(
+        (sum, a) => sum + (parseFloat(a.requested_length_ft) || 0),
+        0,
+      );
+    }
+
+    const returnTx = transactions.filter(t =>
       t.job_id === job.id && t.transaction_type === 'ReturnFromJob'
     );
-    const totalReturned = returnTx.reduce((sum, t) => sum + (t.length_change_ft || 0), 0);
-    
+    // Scrapped footage never came back to the shelf, so counting it as returned
+    // made a job that wrote off 40 ft look 40 ft under budget.
+    const totalReturned = returnTx
+      .filter(t => !t.roll_id || !scrappedRollIds.has(t.roll_id))
+      .reduce((sum, t) => sum + (parseFloat(t.length_change_ft) || 0), 0);
+
     const totalUsed = totalAllocated - totalReturned;
     const requested = job.requested_total_turf_length_ft || 0;
     const variance = totalUsed - requested;
@@ -112,7 +158,9 @@ export default function TurfOverageReport() {
   // Weekly chart data
   const weeklyData = {};
   jobVariances.forEach(job => {
-    const weekStart = format(startOfWeek(new Date(job.date), { weekStartsOn: 1 }), 'MMM d');
+    const parsed = parseLocalDate(job.date);
+    if (!parsed) return;
+    const weekStart = format(startOfWeek(parsed, { weekStartsOn: 1 }), 'MMM d');
     if (!weeklyData[weekStart]) {
       weeklyData[weekStart] = { week: weekStart, variance: 0, count: 0 };
     }
@@ -137,7 +185,7 @@ export default function TurfOverageReport() {
       body: jobVariances.map(j => [
         j.job_number,
         j.customer_name || '-',
-        format(new Date(j.date), 'MM/dd/yyyy'),
+        safeFormat(j.date, 'MM/dd/yyyy'),
         `${j.requested} ft`,
         `${j.used} ft`,
         `${j.variance} ft`,
@@ -157,20 +205,24 @@ export default function TurfOverageReport() {
     const rows = jobVariances.map(j => [
       j.job_number,
       j.customer_name || '',
-      format(new Date(j.date), 'yyyy-MM-dd'),
+      safeFormat(j.date, 'yyyy-MM-dd'),
       j.requested,
       j.used,
       j.variance,
       j.variancePercent + '%'
     ]);
     
-    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const csv = toCsv([headers, ...rows]);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `turf_overage_report_${new Date().toISOString().split('T')[0]}.csv`;
+    // Firefox ignores a click on an anchor that isn't in the document.
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
     toast.success('Turf Overage CSV exported');
   };
 
@@ -315,7 +367,14 @@ export default function TurfOverageReport() {
         <CardHeader>
           <CardTitle className="text-lg">Job Details</CardTitle>
         </CardHeader>
-        {isLoading ? (
+        {isError ? (
+          <div className="p-8 text-center">
+            <p className="text-red-600 font-medium">Couldn't load the overage data.</p>
+            <p className="text-sm text-slate-500 mt-1">
+              The numbers below would be wrong, so nothing is shown. Reload to try again.
+            </p>
+          </div>
+        ) : isLoading ? (
           <div className="p-6 space-y-4">
             {[1, 2, 3, 4, 5].map(i => (
               <Skeleton key={i} className="h-12 w-full" />
@@ -348,7 +407,7 @@ export default function TurfOverageReport() {
                       <TableCell className="font-medium">{job.job_number}</TableCell>
                       <TableCell>{job.customer_name || '-'}</TableCell>
                       <TableCell className="text-slate-600">
-                        {format(new Date(job.date), 'MMM d, yyyy')}
+                        {safeFormat(job.date, 'MMM d, yyyy')}
                       </TableCell>
                       <TableCell>{job.requested} ft</TableCell>
                       <TableCell>{job.used} ft</TableCell>
