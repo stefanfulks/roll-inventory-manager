@@ -1,0 +1,79 @@
+{
+  "name": "Allocation",
+  "type": "object",
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "description": "Reference to Job"
+    },
+    "job_name": {
+      "type": "string"
+    },
+    "item_type": {
+      "type": "string",
+      "enum": [
+        "roll",
+        "accessory",
+        "material"
+      ],
+      "default": "roll",
+      "description": "Type of item allocated"
+    },
+    "item_id": {
+      "type": "string",
+      "description": "ID of the specific item (for accessories/materials)"
+    },
+    "product_id": {
+      "type": "string"
+    },
+    "product_name": {
+      "type": "string"
+    },
+    "width_ft": {
+      "type": "number"
+    },
+    "dye_lot_preference": {
+      "type": "string"
+    },
+    "requested_length_ft": {
+      "type": "number"
+    },
+    "allocated_length_ft": {
+      "type": "number",
+      "default": 0
+    },
+    "requested_quantity": {
+      "type": "number",
+      "description": "For accessories/materials"
+    },
+    "unit_of_measure": {
+      "type": "string",
+      "description": "For accessories/materials"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Planned",
+        "Allocated",
+        "Staged",
+        "Dispatched",
+        "Cancelled"
+      ],
+      "default": "Planned"
+    },
+    "allocated_roll_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Roll IDs allocated to this request"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "job_id",
+    "product_name"
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "name": "Job",
+  "type": "object",
+  "properties": {
+    "job_number": {
+      "type": "string",
+      "description": "Job number identifier"
+    },
+    "fulfillment_for": {
+      "type": "string",
+      "enum": [
+        "TexasTurf",
+        "TurfCasa"
+      ],
+      "description": "Which company this job is for"
+    },
+    "requested_total_turf_length_ft": {
+      "type": "number",
+      "description": "Total turf length requested from Jobber form"
+    },
+    "customer_name": {
+      "type": "string"
+    },
+    "job_address": {
+      "type": "string"
+    },
+    "scheduled_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Draft",
+        "Ready",
+        "Dispatched",
+        "AwaitingReturnInventory",
+        "Completed",
+        "Archived"
+      ],
+      "default": "Draft"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "file_urls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Attached photos or documents"
+    }
+  },
+  "required": [
+    "job_number",
+    "fulfillment_for"
+  ]
+}

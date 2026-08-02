@@ -1,0 +1,99 @@
+{
+  "name": "Transaction",
+  "type": "object",
+  "properties": {
+    "transaction_type": {
+      "type": "string",
+      "enum": [
+        "ReceiveRoll",
+        "BulkReceiveRolls",
+        "UpdateLocation",
+        "CutCreateChildRoll",
+        "AssignToJob",
+        "SendOutToJob",
+        "ReturnFromJob",
+        "RetagRoll",
+        "Adjustment",
+        "Scrap"
+      ]
+    },
+    "fulfillment_for": {
+      "type": "string",
+      "enum": [
+        "TexasTurf",
+        "TurfCasa"
+      ],
+      "description": "Which company this transaction is for (for outbound usage tracking)"
+    },
+    "roll_id": {
+      "type": "string"
+    },
+    "tt_sku_tag_number": {
+      "type": "string"
+    },
+    "manufacturer_roll_number": {
+      "type": "string"
+    },
+    "parent_roll_id": {
+      "type": "string"
+    },
+    "child_roll_id": {
+      "type": "string",
+      "description": "For cut transactions, the new child roll"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "job_number": {
+      "type": "string"
+    },
+    "location_from": {
+      "type": "string"
+    },
+    "location_to": {
+      "type": "string"
+    },
+    "location_bin": {
+      "type": "string"
+    },
+    "location_row": {
+      "type": "string"
+    },
+    "length_change_ft": {
+      "type": "number",
+      "description": "Negative for outgoing, positive for incoming"
+    },
+    "length_before_ft": {
+      "type": "number"
+    },
+    "length_after_ft": {
+      "type": "number"
+    },
+    "product_name": {
+      "type": "string"
+    },
+    "dye_lot": {
+      "type": "string"
+    },
+    "width_ft": {
+      "type": "number"
+    },
+    "old_tag_number": {
+      "type": "string",
+      "description": "For retag operations"
+    },
+    "new_tag_number": {
+      "type": "string",
+      "description": "For retag operations"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "performed_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "transaction_type"
+  ]
+}

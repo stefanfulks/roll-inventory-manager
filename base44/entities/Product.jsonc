@@ -1,0 +1,54 @@
+{
+  "name": "Product",
+  "type": "object",
+  "properties": {
+    "product_name": {
+      "type": "string",
+      "description": "Product name (e.g., TexasLush, TexasHaven)"
+    },
+    "sku_code": {
+      "type": "string",
+      "description": "Optional SKU code"
+    },
+    "manufacturer_name": {
+      "type": "string",
+      "enum": [
+        "MightyGrass",
+        "AGL Grass",
+        "GST"
+      ],
+      "description": "Manufacturer of this product"
+    },
+    "width_options": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "description": "Available widths in feet (e.g., 13, 15)"
+    },
+    "standard_roll_length_ft": {
+      "type": "number",
+      "default": 100,
+      "description": "Standard roll length in feet"
+    },
+    "min_stock_level_ft": {
+      "type": "number",
+      "description": "Minimum linear feet to maintain in stock"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive"
+      ],
+      "default": "active"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "product_name",
+    "manufacturer_name"
+  ]
+}

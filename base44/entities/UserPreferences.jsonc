@@ -1,0 +1,29 @@
+{
+  "name": "UserPreferences",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string",
+      "description": "User email (unique identifier)"
+    },
+    "visible_dashboard_charts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "status_distribution",
+        "shipped_total",
+        "top_turf",
+        "length_distribution",
+        "roll_type",
+        "full_vs_partial_count",
+        "full_vs_partial_sqft"
+      ],
+      "description": "List of chart IDs to show on dashboard"
+    }
+  },
+  "required": [
+    "user_email"
+  ]
+}

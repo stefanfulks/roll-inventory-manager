@@ -1,0 +1,22 @@
+{
+  "name": "Settings",
+  "type": "object",
+  "properties": {
+    "setting_key": {
+      "type": "string",
+      "description": "Unique key for the setting (e.g., low_inventory_threshold, long_sitting_days)"
+    },
+    "setting_value": {
+      "type": "string",
+      "description": "Value of the setting"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description of what this setting controls"
+    }
+  },
+  "required": [
+    "setting_key",
+    "setting_value"
+  ]
+}

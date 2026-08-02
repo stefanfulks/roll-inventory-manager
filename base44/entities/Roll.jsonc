@@ -1,0 +1,142 @@
+{
+  "name": "Roll",
+  "type": "object",
+  "properties": {
+    "roll_tag": {
+      "type": "string",
+      "description": "Legacy identifier (can be deprecated)"
+    },
+    "tt_sku_tag_number": {
+      "type": "string",
+      "description": "Pre-printed TexasTurf SKU tag number (unique per physical roll)"
+    },
+    "manufacturer_roll_number": {
+      "type": "string",
+      "description": "Manufacturer's original roll number (inherited by children) - can be added later"
+    },
+    "vendor_id": {
+      "type": "string",
+      "description": "Reference to Vendor"
+    },
+    "vendor_name": {
+      "type": "string"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "Reference to Product"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Product name (denormalized)"
+    },
+    "dye_lot": {
+      "type": "string",
+      "description": "Never changes, inherited by children"
+    },
+    "width_ft": {
+      "type": "number",
+      "description": "Width in feet"
+    },
+    "original_length_ft": {
+      "type": "number",
+      "description": "Original length in feet"
+    },
+    "current_length_ft": {
+      "type": "number",
+      "description": "Remaining length for parent, exact for child"
+    },
+    "roll_type": {
+      "type": "string",
+      "enum": [
+        "Parent",
+        "Child"
+      ],
+      "default": "Parent"
+    },
+    "parent_roll_id": {
+      "type": "string",
+      "description": "Parent roll ID if this is a child"
+    },
+    "condition": {
+      "type": "string",
+      "enum": [
+        "New",
+        "Good",
+        "Used",
+        "Damaged",
+        "Scrap"
+      ],
+      "default": "New"
+    },
+    "location_id": {
+      "type": "string",
+      "description": "Reference to Location"
+    },
+    "location_name": {
+      "type": "string",
+      "description": "Location name (denormalized)"
+    },
+    "location_bin": {
+      "type": "string",
+      "description": "Bin number (1-9)"
+    },
+    "location_row": {
+      "type": "string",
+      "description": "Row number (A-C)"
+    },
+    "location_notes": {
+      "type": "string",
+      "description": "Optional location details"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Available",
+        "Planned",
+        "Allocated",
+        "Staged",
+        "Dispatched",
+        "Consumed",
+        "Scrapped",
+        "ReturnedHold",
+        "AwaitingLocation"
+      ],
+      "default": "Available"
+    },
+    "allocated_job_id": {
+      "type": "string",
+      "description": "Job ID if this roll is allocated for a specific job"
+    },
+    "date_received": {
+      "type": "string",
+      "format": "date"
+    },
+    "purchase_order": {
+      "type": "string"
+    },
+    "cost_per_sqft": {
+      "type": "number"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "photo_url": {
+      "type": "string"
+    },
+    "file_urls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Attached photos or documents"
+    }
+  },
+  "required": [
+    "tt_sku_tag_number",
+    "product_name",
+    "dye_lot",
+    "width_ft",
+    "original_length_ft",
+    "current_length_ft"
+  ]
+}

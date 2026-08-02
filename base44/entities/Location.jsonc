@@ -1,0 +1,31 @@
+{
+  "name": "Location",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Location name (e.g., Rack A-1, Zone 3)"
+    },
+    "designated_for": {
+      "type": "string",
+      "enum": [
+        "all",
+        "turf_only",
+        "other_inventory_only"
+      ],
+      "default": "all",
+      "description": "What items can be stored here"
+    },
+    "sort_order": {
+      "type": "number",
+      "default": 0,
+      "description": "Custom sort order for display"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

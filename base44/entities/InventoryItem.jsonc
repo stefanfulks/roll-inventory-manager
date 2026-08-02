@@ -1,0 +1,81 @@
+{
+  "name": "InventoryItem",
+  "type": "object",
+  "properties": {
+    "item_name": {
+      "type": "string",
+      "description": "Name of the inventory item (e.g., U-Staples, Seaming Tape)"
+    },
+    "sku": {
+      "type": "string",
+      "description": "Stock Keeping Unit"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "Adhesives (Glue)",
+        "Seaming (Tape / Seam Materials)",
+        "Infill / Topdress",
+        "Sand (Bulk)",
+        "Base Materials (DG / Aggregate)",
+        "Rock / Gravel (Bulk)",
+        "Weed Barrier / Ground Cover",
+        "Edging",
+        "Fasteners",
+        "Putting Green Accessories",
+        "Tools",
+        "Cleaning / Deodorizer"
+      ],
+      "description": "Category of the inventory item"
+    },
+    "unit_of_measure": {
+      "type": "string",
+      "description": "How the item is stocked/counted (e.g., box, piece, yard, gallon, lb, foot, pail)"
+    },
+    "unit_size_definition": {
+      "type": "string",
+      "description": "What 1 unit equals (e.g., 100 sq ft, 50 lbs, 1 gallon)"
+    },
+    "quantity_on_hand": {
+      "type": "number",
+      "description": "Current quantity in stock"
+    },
+    "min_stock_level_units": {
+      "type": "number",
+      "description": "Minimum units to maintain in stock"
+    },
+    "partial_return_type": {
+      "type": "string",
+      "enum": [
+        "quarter_yard",
+        "quarter_pail",
+        "by_foot",
+        "full_unit_only"
+      ],
+      "description": "Defines how partial returns are handled for this item"
+    },
+    "condition": {
+      "type": "string",
+      "enum": [
+        "New",
+        "Used"
+      ],
+      "default": "New",
+      "description": "Condition of the item (for returns from jobs)"
+    },
+    "date_received": {
+      "type": "string",
+      "format": "date",
+      "description": "Date when item was received or last restocked"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "item_name",
+    "category",
+    "unit_of_measure",
+    "unit_size_definition"
+  ]
+}
