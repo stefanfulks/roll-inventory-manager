@@ -149,13 +149,20 @@ export function findActiveAllocationForRoll(rollId, allAllocations) {
 /**
  * Release a roll: clear any job binding, set status back to Available.
  * Idempotent — safe to call even if roll is already Available.
+ * Tolerates a roll that no longer exists (e.g. deleted child) so an orphan
+ * allocation can still be removed — the missing roll shouldn't block cleanup.
  */
 export async function releaseRoll(rollId) {
   if (!rollId) return;
-  await base44.entities.Roll.update(rollId, {
-    status: ROLL_STATUS.AVAILABLE,
-    allocated_job_id: null,
-  });
+  try {
+    await base44.entities.Roll.update(rollId, {
+      status: ROLL_STATUS.AVAILABLE,
+      allocated_job_id: null,
+    });
+  } catch (e) {
+    // Roll may have been deleted. Swallow so allocation cleanup can proceed.
+    console.warn(`[releaseRoll] could not update roll ${rollId}:`, e?.message || e);
+  }
 }
 
 /**
@@ -208,12 +215,19 @@ export async function updateAllocationStatusWithSync(allocationId, newStatus, al
 /**
  * Delete an allocation AND release all rolls it was holding.
  * This fixes the "roll stays Allocated after I release it from the job" bug.
+ * The allocation is deleted even if a referenced roll was already removed, so
+ * orphan allocations (e.g. from a deleted child) can always be cleaned up.
  */
 export async function deleteAllocationWithSync(allocation) {
   if (!allocation) return;
   const rollIds = allocation.item_type === 'roll' ? (allocation.allocated_roll_ids || []) : [];
   await Promise.all(rollIds.map(releaseRoll));
-  await base44.entities.Allocation.delete(allocation.id);
+  try {
+    await base44.entities.Allocation.delete(allocation.id);
+  } catch (e) {
+    console.warn(`[deleteAllocationWithSync] could not delete allocation ${allocation.id}:`, e?.message || e);
+    throw e;
+  }
 }
 
 /**
@@ -253,6 +267,70 @@ export async function setRollStatusManually(roll, newStatus, allAllocations) {
     ...(!ROLL_ACTIVE_JOB_STATUSES.includes(newStatus) && { allocated_job_id: null }),
   });
   return { ok: true };
+}
+
+/**
+ * Reconcile a single roll's status against its active allocation.
+ * If the roll has an active allocation but its status is Available (or otherwise
+ * out of sync), stamp it to the allocation's implied status. If it has no active
+ * allocation but is stuck in a job-state status, release it to Available.
+ *
+ * Returns a description of what changed (or null if nothing was wrong).
+ *
+ * Safe and idempotent — only writes when the roll is actually inconsistent.
+ */
+export async function reconcileRollStatus(roll, allAllocations) {
+  if (!roll || !roll.id) return null;
+  const activeAllocation = findActiveAllocationForRoll(roll.id, allAllocations);
+  const expectedStatus = activeAllocation
+    ? rollStatusFromAllocation(activeAllocation.status)
+    : null;
+
+  // Case 1: active allocation exists but roll isn't in the matching job-state.
+  if (activeAllocation && expectedStatus && roll.status !== expectedStatus) {
+    await base44.entities.Roll.update(roll.id, {
+      status: expectedStatus,
+      allocated_job_id: activeAllocation.job_id,
+    });
+    return { rollId: roll.id, from: roll.status, to: expectedStatus, reason: 'active-allocation-mismatch' };
+  }
+
+  // Case 2: no active allocation but roll is stuck in a job-state status.
+  if (!activeAllocation && ROLL_ACTIVE_JOB_STATUSES.includes(roll.status)) {
+    await base44.entities.Roll.update(roll.id, {
+      status: ROLL_STATUS.AVAILABLE,
+      allocated_job_id: null,
+    });
+    return { rollId: roll.id, from: roll.status, to: ROLL_STATUS.AVAILABLE, reason: 'stale-job-status' };
+  }
+
+  // Case 3: no active allocation but allocated_job_id is set — clear it.
+  if (!activeAllocation && roll.allocated_job_id && !ROLL_ACTIVE_JOB_STATUSES.includes(roll.status)) {
+    await base44.entities.Roll.update(roll.id, { allocated_job_id: null });
+    return { rollId: roll.id, from: roll.allocated_job_id, to: null, reason: 'stale-allocated-job-id' };
+  }
+
+  return null;
+}
+
+/**
+ * Restore inventory for a dispatched inventory_item allocation that is being
+ * removed (undo/delete). Only restores if the allocation had been dispatched —
+ * Planned/Allocated allocations never decremented stock, so there's nothing to
+ * give back. Returns the quantity restored (0 if none).
+ */
+export async function restoreInventoryForAllocation(allocation, inventoryItems) {
+  if (!allocation || allocation.item_type !== 'inventory_item' || !allocation.item_id) return 0;
+  // Only dispatched allocations actually pulled stock out of the shelf.
+  if (allocation.status !== ALLOCATION_STATUS.DISPATCHED) return 0;
+  const item = inventoryItems.find(i => i.id === allocation.item_id);
+  if (!item) return 0;
+  const qty = parseFloat(allocation.requested_quantity) || 0;
+  if (qty <= 0) return 0;
+  await base44.entities.InventoryItem.update(item.id, {
+    quantity_on_hand: (parseFloat(item.quantity_on_hand) || 0) + qty,
+  });
+  return qty;
 }
 
 // ---------- Canonical transaction types ----------

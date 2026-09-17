@@ -58,6 +58,7 @@ import {
   createAllocationWithSync,
   updateAllocationStatusWithSync,
   deleteAllocationWithSync,
+  restoreInventoryForAllocation,
 } from '@/lib/rollStatus';
 import { formatFeetInches } from '@/lib/dateHelpers';
 import { describeError } from '@/lib/query-client';
@@ -200,6 +201,10 @@ export default function JobDetail() {
       if (!allocation) {
         throw new Error('That allocation no longer exists. Refresh the page.');
       }
+      // If this inventory item already went out, put its quantity back on the
+      // shelf before removing the line — otherwise deleting the allocation
+      // silently loses stock.
+      await restoreInventoryForAllocation(allocation, inventoryItems);
       await deleteAllocationWithSync(allocation);
     },
     onSuccess: () => {
@@ -207,6 +212,7 @@ export default function JobDetail() {
       queryClient.invalidateQueries({ queryKey: ['allocations'] });
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
       toast.success('Allocation removed and rolls released');
     },
   });
@@ -521,6 +527,25 @@ export default function JobDetail() {
         );
       }
 
+      // Pre-check inventory before touching anything — failing mid-flight used to
+      // leave some allocations dispatched and others not, with no way to retry.
+      // Catching a shortfall up front keeps the operation atomic.
+      for (const allocation of toDispatch) {
+        if (allocation.item_type === 'inventory_item' && allocation.item_id) {
+          const item = inventoryItems.find(i => i.id === allocation.item_id);
+          if (!item) {
+            throw new Error(`Item for "${allocation.product_name}" no longer exists. Remove it from the job.`);
+          }
+          const need = parseFloat(allocation.requested_quantity) || 0;
+          const have = parseFloat(item.quantity_on_hand) || 0;
+          if (need > have) {
+            throw new Error(
+              `Not enough ${item.item_name} on hand: need ${need} ${item.unit_of_measure}, only ${have} in stock. Restock or reduce the quantity.`,
+            );
+          }
+        }
+      }
+
       await base44.entities.Job.update(jobId, { status: 'Dispatched' });
 
       for (const allocation of toDispatch) {
@@ -730,6 +755,23 @@ export default function JobDetail() {
             >
               <Send className="h-4 w-4 mr-2" />
               Mark as Fulfilled
+            </Button>
+          )}
+          {/* Re-runnable fulfillment: if a prior dispatch errored partway, some
+              allocations sit un-dispatched while the job is already "Dispatched".
+              Show the button again so the crew can finish without a refresh. */}
+          {job.status === 'Dispatched' && allocations.some(a =>
+            a.status !== ALLOCATION_STATUS.CANCELLED &&
+            a.status !== ALLOCATION_STATUS.COMPLETED &&
+            a.status !== ALLOCATION_STATUS.DISPATCHED
+          ) && (
+            <Button 
+              onClick={() => dispatchJobMutation.mutate()}
+              disabled={dispatchJobMutation.isPending}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Send className="h-4 w-4 mr-2" />
+              Finish Fulfilling
             </Button>
           )}
           {/* Returns are receivable for every owner, and stay receivable after the

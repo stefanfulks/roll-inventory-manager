@@ -30,6 +30,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import StatusBadge from '@/components/ui/StatusBadge';
+import ConvertToChildDialog from '@/components/roll/ConvertToChildDialog';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -61,6 +62,7 @@ export default function RollDetail() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const [parentSearch, setParentSearch] = useState('');
+  const [showConvertDialog, setShowConvertDialog] = useState(false);
 
   const { data: roll, isLoading } = useQuery({
     queryKey: ['roll', rollId],
@@ -512,6 +514,15 @@ export default function RollDetail() {
           >
             Edit Status
           </Button>
+          {roll.roll_type !== 'Child' && (
+            <Button
+              variant="outline"
+              onClick={() => setShowConvertDialog(true)}
+              className="border-purple-600 text-purple-600 hover:bg-purple-50"
+            >
+              Convert to Child
+            </Button>
+          )}
           {roll.status === ROLL_STATUS.AVAILABLE && roll.current_length_ft > 0 && !activeAllocation && (
             <>
               <Button
@@ -1141,6 +1152,13 @@ export default function RollDetail() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Convert to Child Dialog — for mis-logged parent rolls */}
+      <ConvertToChildDialog
+        open={showConvertDialog}
+        onOpenChange={setShowConvertDialog}
+        roll={roll}
+      />
     </div>
   );
 }
