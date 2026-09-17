@@ -83,7 +83,7 @@ export default function GlobalSearch() {
     setIsExpanded(false);
   };
 
-  const hasResults = results.rolls.length > 0 || results.jobs.length > 0 || results.products.length > 0;
+  const hasResults = results.rolls.length > 0 || results.jobs.length > 0 || productMatches.length > 0;
 
   return (
     <div className="mb-4">
@@ -153,11 +153,11 @@ export default function GlobalSearch() {
               )}
 
               {/* Products */}
-              {results.products.length > 0 && (
+              {productMatches.length > 0 && (
                 <div>
                   <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1 px-2">Products</h3>
                   <div className="space-y-0.5">
-                    {results.products.map(product => (
+                    {productMatches.map(product => (
                       <button
                         key={product.id}
                         onClick={() => handleNavigate(createPageUrl('Inventory'))}
