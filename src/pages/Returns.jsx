@@ -56,6 +56,7 @@ export default function Returns() {
   const [selectedJobId, setSelectedJobId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [rollForms, setRollForms] = useState({}); // { rollId: { selected, condition, returnedLength, isPartial, newTag, location_id, sendToPending, targetStatus, notes } }
+  const [inventoryForms, setInventoryForms] = useState({}); // { allocId: { selected, returnedQuantity, isUnopened, notes } }
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmationResults, setConfirmationResults] = useState([]);
 
@@ -93,6 +94,11 @@ export default function Returns() {
     },
   });
 
+  const { data: allInventoryItems = [] } = useQuery({
+    queryKey: ['inventoryItems'],
+    queryFn: () => base44.entities.InventoryItem.list('-created_date', 1000),
+  });
+
   const selectedJob = jobs.find(j => j.id === selectedJobId);
 
   // Rolls allocated to the selected job, in statuses that can be returned.
@@ -118,6 +124,18 @@ export default function Returns() {
         (r.dye_lot || '').toLowerCase().includes(q),
     );
   }, [selectedJobId, allAllocations, allRolls, searchTerm]);
+
+  // Other Inventory item allocations (DG, nails, staples, etc.) for the selected job.
+  const returnableInventoryAllocations = useMemo(() => {
+    if (!selectedJobId) return [];
+    return allAllocations.filter(
+      a =>
+        a.job_id === selectedJobId &&
+        a.item_type === 'inventory_item' &&
+        a.status !== 'Cancelled' &&
+        a.status !== 'Completed',
+    );
+  }, [selectedJobId, allAllocations]);
 
   // ---- Form helpers ----
   const getForm = rollId => {
@@ -184,15 +202,53 @@ export default function Returns() {
     });
   };
 
+  // ---- Inventory item form helpers ----
+  const getInventoryForm = allocId => {
+    return (
+      inventoryForms[allocId] || {
+        selected: false,
+        returnedQuantity: '',
+        isUnopened: true,
+        notes: '',
+      }
+    );
+  };
+
+  const updateInventoryForm = (allocId, patch) => {
+    setInventoryForms(prev => ({
+      ...prev,
+      [allocId]: { ...getInventoryForm(allocId), ...patch },
+    }));
+  };
+
+  const toggleInventorySelected = (allocation, inventoryItem) => {
+    const f = getInventoryForm(allocation.id);
+    updateInventoryForm(allocation.id, {
+      selected: !f.selected,
+      returnedQuantity: !f.selected
+        ? String(allocation.requested_quantity || 1)
+        : f.returnedQuantity,
+    });
+  };
+
   // ---- Submit ----
   const submitMutation = useMutation({
     mutationFn: async () => {
       const user = await base44.auth.me();
       const results = [];
 
+      // Re-fetch fresh allocations for idempotency — if a prior submit already
+      // completed an allocation, we skip it instead of double-processing/restoring.
+      const freshAllocations = await base44.entities.Allocation.filter({ job_id: selectedJobId });
+      const freshAllocById = {};
+      freshAllocations.forEach(a => { freshAllocById[a.id] = a; });
+
       const selectedRolls = returnableRolls.filter(r => getForm(r.id).selected);
-      if (selectedRolls.length === 0) {
-        throw new Error('No rolls selected to return.');
+      const selectedInventoryAllocs = returnableInventoryAllocations.filter(
+        a => getInventoryForm(a.id).selected,
+      );
+      if (selectedRolls.length === 0 && selectedInventoryAllocs.length === 0) {
+        throw new Error('Select at least one roll or inventory item to return.');
       }
 
       for (const roll of selectedRolls) {
@@ -320,6 +376,7 @@ export default function Returns() {
         });
 
         results.push({
+          type: 'roll',
           originalRoll: roll,
           targetRoll,
           returnType: isFull ? 'Full' : 'Partial',
@@ -348,6 +405,66 @@ export default function Returns() {
         }
       }
 
+      // ---- Other Inventory items (DG, nails, staples, etc.) ----
+      for (const allocation of selectedInventoryAllocs) {
+        // Idempotency: skip if a prior run already completed or cancelled this allocation.
+        const fresh = freshAllocById[allocation.id];
+        if (fresh && (fresh.status === 'Completed' || fresh.status === 'Cancelled')) {
+          continue;
+        }
+
+        const f = getInventoryForm(allocation.id);
+        const returnedQty = parseFloat(f.returnedQuantity) || 0;
+        if (returnedQty < 0) {
+          throw new Error(`${allocation.product_name}: returned quantity cannot be negative.`);
+        }
+        if (returnedQty > (allocation.requested_quantity || 0) + 0.001) {
+          throw new Error(
+            `${allocation.product_name}: returning ${returnedQty} but only ${allocation.requested_quantity || 0} ${allocation.unit_of_measure || ''} went out.`,
+          );
+        }
+
+        const inventoryItem = allInventoryItems.find(i => i.id === allocation.item_id);
+        if (!inventoryItem) {
+          throw new Error(`${allocation.product_name}: inventory item no longer exists.`);
+        }
+
+        // Only unopened/full units go back to stock; opened partials are logged but not restocked.
+        const shouldAddToInventory =
+          inventoryItem.partial_return_type !== 'full_unit_only' || f.isUnopened;
+        const quantityToAdd = shouldAddToInventory ? returnedQty : 0;
+
+        if (quantityToAdd > 0) {
+          await base44.entities.InventoryItem.update(inventoryItem.id, {
+            quantity_on_hand: (inventoryItem.quantity_on_hand || 0) + quantityToAdd,
+          });
+        }
+
+        // Mark allocation Completed — this is the idempotency key. A retry sees
+        // Completed and skips, preventing a duplicate quantity restore.
+        await base44.entities.Allocation.update(allocation.id, { status: 'Completed' });
+
+        await base44.entities.Transaction.create({
+          transaction_type: 'ReturnFromJob',
+          fulfillment_for: selectedJob?.fulfillment_for,
+          job_id: selectedJobId,
+          job_number: selectedJob?.job_number,
+          product_name: inventoryItem.item_name,
+          performed_by: user.full_name || user.email,
+          notes: shouldAddToInventory
+            ? `Returned ${returnedQty} ${inventoryItem.unit_of_measure} from job ${selectedJob?.job_number || ''} — Added to inventory`
+            : `Returned ${returnedQty} ${inventoryItem.unit_of_measure} from job ${selectedJob?.job_number || ''} — Opened/used, not added to inventory`,
+        });
+
+        results.push({
+          type: 'inventory_item',
+          allocation,
+          inventoryItem,
+          returnedQuantity: returnedQty,
+          addedToInventory: quantityToAdd > 0,
+        });
+      }
+
       return results;
     },
     onSuccess: results => {
@@ -355,6 +472,7 @@ export default function Returns() {
       queryClient.invalidateQueries({ queryKey: ['allocations'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['returnTransactions'] });
+      queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
       queryClient.invalidateQueries({ queryKey: ['job', selectedJobId] });
       setConfirmationResults(results);
       setView('confirm');
@@ -370,11 +488,14 @@ export default function Returns() {
     setSelectedJobId('');
     setSearchTerm('');
     setRollForms({});
+    setInventoryForms({});
     setConfirmationResults([]);
   };
 
   // ---- UI ----
   if (view === 'confirm') {
+    const rollResults = confirmationResults.filter(r => r.type === 'roll');
+    const inventoryResults = confirmationResults.filter(r => r.type === 'inventory_item');
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -385,7 +506,9 @@ export default function Returns() {
                 Returns Processed
               </h1>
               <p className="text-slate-500 mt-1">
-                {confirmationResults.length} roll{confirmationResults.length === 1 ? '' : 's'}{' '}
+                {rollResults.length} roll{rollResults.length === 1 ? '' : 's'}
+                {inventoryResults.length > 0 &&
+                  ` and ${inventoryResults.length} other inventory item${inventoryResults.length === 1 ? '' : 's'}`}{' '}
                 returned from job{' '}
                 <span className="font-medium">{selectedJob?.job_number}</span>
               </p>
@@ -396,47 +519,82 @@ export default function Returns() {
           </Button>
         </div>
 
-        <Card className="rounded-2xl border-slate-100 shadow-sm">
-          <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left">
-                <tr>
-                  <th className="px-4 py-3 font-medium text-slate-600">Original Roll</th>
-                  <th className="px-4 py-3 font-medium text-slate-600">Result</th>
-                  <th className="px-4 py-3 font-medium text-slate-600">Length</th>
-                  <th className="px-4 py-3 font-medium text-slate-600">Condition</th>
-                  <th className="px-4 py-3 font-medium text-slate-600">Status</th>
-                  <th className="px-4 py-3 font-medium text-slate-600">Location</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {confirmationResults.map((r, i) => (
-                  <tr key={i}>
-                    <td className="px-4 py-3 font-mono">{r.originalRoll.tt_sku_tag_number}</td>
-                    <td className="px-4 py-3">
-                      {r.childCreated ? (
-                        <>
-                          Partial → new child{' '}
-                          <span className="font-mono font-medium">
-                            {r.targetRoll.tt_sku_tag_number}
-                          </span>
-                        </>
-                      ) : (
-                        'Full return'
-                      )}
-                    </td>
-                    <td className="px-4 py-3">{r.returnedLength} ft</td>
-                    <td className="px-4 py-3">{r.condition}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={r.targetStatus} size="sm" />
-                    </td>
-                    <td className="px-4 py-3">{r.location || '—'}</td>
+        {rollResults.length > 0 && (
+          <Card className="rounded-2xl border-slate-100 shadow-sm">
+            <CardContent className="p-0">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-left">
+                  <tr>
+                    <th className="px-4 py-3 font-medium text-slate-600">Original Roll</th>
+                    <th className="px-4 py-3 font-medium text-slate-600">Result</th>
+                    <th className="px-4 py-3 font-medium text-slate-600">Length</th>
+                    <th className="px-4 py-3 font-medium text-slate-600">Condition</th>
+                    <th className="px-4 py-3 font-medium text-slate-600">Status</th>
+                    <th className="px-4 py-3 font-medium text-slate-600">Location</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {rollResults.map((r, i) => (
+                    <tr key={i}>
+                      <td className="px-4 py-3 font-mono">{r.originalRoll.tt_sku_tag_number}</td>
+                      <td className="px-4 py-3">
+                        {r.childCreated ? (
+                          <>
+                            Partial → new child{' '}
+                            <span className="font-mono font-medium">
+                              {r.targetRoll.tt_sku_tag_number}
+                            </span>
+                          </>
+                        ) : (
+                          'Full return'
+                        )}
+                      </td>
+                      <td className="px-4 py-3">{r.returnedLength} ft</td>
+                      <td className="px-4 py-3">{r.condition}</td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={r.targetStatus} size="sm" />
+                      </td>
+                      <td className="px-4 py-3">{r.location || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
+
+        {inventoryResults.length > 0 && (
+          <Card className="rounded-2xl border-slate-100 shadow-sm">
+            <CardContent className="p-0">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-left">
+                  <tr>
+                    <th className="px-4 py-3 font-medium text-slate-600">Item</th>
+                    <th className="px-4 py-3 font-medium text-slate-600">Returned Qty</th>
+                    <th className="px-4 py-3 font-medium text-slate-600">Restocked?</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {inventoryResults.map((r, i) => (
+                    <tr key={i}>
+                      <td className="px-4 py-3 font-medium">{r.inventoryItem.item_name}</td>
+                      <td className="px-4 py-3">
+                        {r.returnedQuantity} {r.inventoryItem.unit_of_measure}
+                      </td>
+                      <td className="px-4 py-3">
+                        {r.addedToInventory ? (
+                          <span className="text-emerald-600 font-medium">Yes — added to stock</span>
+                        ) : (
+                          <span className="text-amber-600 font-medium">No — opened/used</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
 
         <p className="text-sm text-slate-500">
           Rolls in a <StatusBadge status="PendingAvailable" size="sm" /> or{' '}
@@ -454,7 +612,8 @@ export default function Returns() {
       <div>
         <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Returns</h1>
         <p className="text-slate-500 mt-1">
-          Select a job, pick the rolls coming back, and choose how each should be processed.
+          Select a job, pick the rolls and other inventory items coming back, and choose
+          how each should be processed.
         </p>
       </div>
 
@@ -529,6 +688,7 @@ export default function Returns() {
               onClick={() => {
                 setView('select-job');
                 setRollForms({});
+                setInventoryForms({});
                 setSearchTerm('');
               }}
             >
@@ -775,7 +935,8 @@ export default function Returns() {
                   onClick={() => submitMutation.mutate()}
                   disabled={
                     submitMutation.isPending ||
-                    !Object.values(rollForms).some(f => f.selected)
+                    (!Object.values(rollForms).some(f => f.selected) &&
+                      !Object.values(inventoryForms).some(f => f.selected))
                   }
                   className="bg-emerald-600 hover:bg-emerald-700"
                 >
@@ -785,6 +946,134 @@ export default function Returns() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Other Inventory items (DG, nails, staples, etc.) */}
+          {returnableInventoryAllocations.length > 0 && (
+            <Card className="rounded-2xl border-slate-100 shadow-sm">
+              <CardHeader>
+                <CardTitle>
+                  Other inventory items ({returnableInventoryAllocations.length})
+                </CardTitle>
+                <CardDescription>
+                  Tick the items coming back and enter the quantity returned. Unopened
+                  items are restocked; opened items are logged but not restocked.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {returnableInventoryAllocations.map(allocation => {
+                  const item = allInventoryItems.find(i => i.id === allocation.item_id);
+                  if (!item) return null;
+                  const f = getInventoryForm(allocation.id);
+                  return (
+                    <div
+                      key={allocation.id}
+                      className={`rounded-lg border p-4 ${
+                        f.selected
+                          ? 'border-emerald-400 bg-emerald-50/40'
+                          : 'border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={f.selected}
+                          onChange={() => toggleInventorySelected(allocation, item)}
+                          className="mt-1.5 h-4 w-4"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{item.item_name}</span>
+                            <span className="text-sm text-slate-500">
+                              SKU: {item.sku || 'N/A'} • Sent: {allocation.requested_quantity || 1}{' '}
+                              {item.unit_of_measure}
+                            </span>
+                          </div>
+
+                          {f.selected && (
+                            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <Label className="text-xs">
+                                  Returned quantity ({item.unit_of_measure})
+                                </Label>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max={allocation.requested_quantity || 1}
+                                  step={
+                                    item.partial_return_type === 'quarter_yard' ||
+                                    item.partial_return_type === 'quarter_pail'
+                                      ? '0.25'
+                                      : '1'
+                                  }
+                                  value={f.returnedQuantity}
+                                  onChange={e => {
+                                    let val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                                    if (
+                                      typeof val === 'number' &&
+                                      (item.partial_return_type === 'quarter_yard' ||
+                                        item.partial_return_type === 'quarter_pail')
+                                    ) {
+                                      val = Math.round(val * 4) / 4;
+                                    }
+                                    updateInventoryForm(allocation.id, { returnedQuantity: val });
+                                  }}
+                                />
+                                <p className="text-xs text-slate-500 mt-1">
+                                  Sent {allocation.requested_quantity || 1} {item.unit_of_measure}.
+                                  Enter less if some was used.
+                                </p>
+                              </div>
+
+                              {item.partial_return_type === 'full_unit_only' && (
+                                <div>
+                                  <Label className="text-xs">Condition</Label>
+                                  <Select
+                                    value={f.isUnopened ? 'unopened' : 'used'}
+                                    onValueChange={v =>
+                                      updateInventoryForm(allocation.id, {
+                                        isUnopened: v === 'unopened',
+                                      })
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="unopened">
+                                        Unopened — restock
+                                      </SelectItem>
+                                      <SelectItem value="used">
+                                        Opened/Used — do not restock
+                                      </SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    Opened items are logged but not added back to stock.
+                                  </p>
+                                </div>
+                              )}
+
+                              <div className="md:col-span-2">
+                                <Label className="text-xs">Notes (optional)</Label>
+                                <Textarea
+                                  value={f.notes}
+                                  onChange={e =>
+                                    updateInventoryForm(allocation.id, { notes: e.target.value })
+                                  }
+                                  placeholder="Anything worth logging about this return"
+                                  rows={2}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>
