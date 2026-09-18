@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
@@ -26,6 +27,7 @@ export default function SwapRollDialog({
   currentRoll 
 }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedReplacement, setSelectedReplacement] = useState(null);
 
@@ -45,8 +47,6 @@ export default function SwapRollDialog({
 
   const swapRollMutation = useMutation({
     mutationFn: async (replacementRoll) => {
-      const user = await base44.auth.me();
-
       // The allocation is rewritten before either roll moves: if this write fails,
       // both roll statuses are untouched and the old roll is still safely held.
       const updatedRollIds = Array.from(new Set([

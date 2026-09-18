@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
@@ -49,6 +50,7 @@ const CONDITION_OPTIONS = ['Good', 'Used', 'Damaged', 'Scrap'];
  */
 export default function Returns() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   // View states: 'select-job' | 'detail' | 'confirm' | 'unmarked'
   const [view, setView] = useState('select-job');
@@ -234,7 +236,6 @@ export default function Returns() {
   // ---- Submit ----
   const submitMutation = useMutation({
     mutationFn: async () => {
-      const user = await base44.auth.me();
       const results = [];
 
       // Re-fetch fresh allocations for idempotency — if a prior submit already

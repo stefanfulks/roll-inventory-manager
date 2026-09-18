@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Save, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ const binRowFromName = (name) => {
 
 export default function PendingInventory() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [editingRolls, setEditingRolls] = useState({});
 
   const { data: pendingRolls = [], isLoading } = useQuery({
@@ -48,8 +50,6 @@ export default function PendingInventory() {
 
   const completeRollMutation = useMutation({
     mutationFn: async ({ roll, data, previousTag }) => {
-      const user = await base44.auth.me();
-
       await base44.entities.Roll.update(roll.id, {
         ...data,
         status: ROLL_STATUS.AVAILABLE

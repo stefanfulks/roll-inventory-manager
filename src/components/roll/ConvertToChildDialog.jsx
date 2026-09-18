@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
@@ -24,6 +25,7 @@ import { describeError } from '@/lib/query-client';
  */
 export default function ConvertToChildDialog({ open, onOpenChange, roll }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [selectedParentId, setSelectedParentId] = useState('');
   const [notes, setNotes] = useState('');
@@ -55,7 +57,6 @@ export default function ConvertToChildDialog({ open, onOpenChange, roll }) {
     mutationFn: async () => {
       if (!roll) throw new Error('No roll selected.');
       if (!selectedParentId) throw new Error('Pick a parent roll to convert into a child of.');
-      const user = await base44.auth.me();
       return convertParentToChild({
         rollId: roll.id,
         newParentId: selectedParentId,

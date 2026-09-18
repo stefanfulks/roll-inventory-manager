@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -17,6 +18,7 @@ const TRANSACTION_WINDOW = 5000;
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [showCustomizer, setShowCustomizer] = useState(false);
   const [activeTab, setActiveTab] = useState('turf');
   const [visibleCharts, setVisibleCharts] = useState([
@@ -70,13 +72,6 @@ export default function Dashboard() {
     queryKey: ['settings'],
     queryFn: () => base44.entities.Settings.list(),
     staleTime: 10 * 60 * 1000,
-    refetchOnWindowFocus: false
-  });
-
-  const { data: user } = useQuery({
-    queryKey: ['user'],
-    queryFn: () => base44.auth.me(),
-    staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false
   });
 

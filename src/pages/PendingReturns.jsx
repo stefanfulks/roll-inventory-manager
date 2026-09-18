@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ClipboardList,
@@ -62,6 +63,7 @@ const DISPOSITION_OPTIONS = [
  */
 export default function PendingReturns() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [reviewRoll, setReviewRoll] = useState(null);
   const [reviewForm, setReviewForm] = useState({
     disposition: ROLL_STATUS.AVAILABLE,
@@ -140,7 +142,6 @@ export default function PendingReturns() {
         }
       }
 
-      const user = await base44.auth.me();
       const lengthBefore = reviewRoll.current_length_ft || 0;
 
       // The allocation the roll came back from still claims it until closed,

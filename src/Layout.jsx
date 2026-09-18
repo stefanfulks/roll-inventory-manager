@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { 
   LayoutDashboard, 
   Package, 
@@ -58,19 +59,10 @@ const adminItems = [
 
 export default function Layout({ children, currentPageName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const location = useLocation();
 
   useEffect(() => {
-    const loadUser = async () => {
-      try {
-        const userData = await base44.auth.me();
-        setUser(userData);
-      } catch (e) {
-        console.log('Not logged in');
-      }
-    };
-    loadUser();
     // Ensure dark class is never applied
     document.documentElement.classList.remove('dark');
   }, []);

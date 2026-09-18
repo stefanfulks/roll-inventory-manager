@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
@@ -52,6 +53,7 @@ const ROLL_TYPE_OPTIONS = ['Parent', 'Child'];
 
 export default function RollDetail() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const params = new URLSearchParams(window.location.search);
   const rollId = params.get('id');
   const [showPlanDialog, setShowPlanDialog] = useState(false);
@@ -142,7 +144,7 @@ export default function RollDetail() {
       console.log('[Plan] Starting plan for job:', jobId, 'roll:', roll?.id);
       if (!jobId) throw new Error('Please pick a job from the list before confirming.');
       if (!roll?.id) throw new Error('Roll data is not loaded yet. Please refresh and try again.');
-      const user = await base44.auth.me();
+
       const job = jobs.find(j => j.id === jobId);
       if (!job) {
         throw new Error(`Job not found in the loaded jobs list. Try refreshing the page.`);
@@ -195,7 +197,7 @@ export default function RollDetail() {
       console.log('[Allocate] Starting allocation for job:', jobId, 'roll:', roll?.id);
       if (!jobId) throw new Error('Please pick a job from the list before confirming.');
       if (!roll?.id) throw new Error('Roll data is not loaded yet. Please refresh and try again.');
-      const user = await base44.auth.me();
+
       const job = jobs.find(j => j.id === jobId);
       if (!job) {
         throw new Error(`Job not found in the loaded jobs list. Try refreshing the page.`);
@@ -302,7 +304,7 @@ export default function RollDetail() {
         }
       }
 
-      const user = await base44.auth.me();
+
 
       await base44.entities.Roll.update(rollId, {
         current_length_ft: tx.length_before_ft,
@@ -362,7 +364,7 @@ export default function RollDetail() {
         throw new Error('A child roll needs a parent roll. Pick one, or set the type back to Parent.');
       }
 
-      const user = await base44.auth.me();
+
       const isChild = form.roll_type === 'Child';
 
       await base44.entities.Roll.update(rollId, {

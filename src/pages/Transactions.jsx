@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Download,
@@ -66,6 +67,7 @@ const toCsv = rows => rows.map(row => row.map(csvCell).join(',')).join('\n');
 
 export default function Transactions() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [dispositionFilter, setDispositionFilter] = useState('all');
@@ -118,8 +120,6 @@ export default function Transactions() {
           `This roll is still allocated to ${activeAllocation.job_name || 'a job'}. Release it from the job (or cancel the allocation) before undoing this transaction.`
         );
       }
-
-      const user = await base44.auth.me();
 
       // Restore roll length to before-state
       await base44.entities.Roll.update(tx.roll_id, {

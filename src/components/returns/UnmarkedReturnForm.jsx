@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Check, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,7 @@ const CONDITION_OPTIONS = ['Good', 'Used', 'Damaged', 'Scrap'];
  */
 export default function UnmarkedReturnForm({ onCancel, onSuccess }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [rows, setRows] = useState([newRow()]);
 
   const { data: products = [] } = useQuery({
@@ -92,8 +94,6 @@ export default function UnmarkedReturnForm({ onCancel, onSuccess }) {
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      const user = await base44.auth.me();
-
       // Every row is checked before the first write. Validating inside the write
       // loop meant a bad row 3 left rows 1-2 created, and re-saving duplicated them.
       const seenTags = new Set();

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
@@ -65,6 +66,7 @@ import { describeError } from '@/lib/query-client';
 
 export default function JobDetail() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const params = new URLSearchParams(window.location.search);
   const jobId = params.get('id');
 
@@ -314,7 +316,7 @@ export default function JobDetail() {
 
   const receiveReturnsMutation = useMutation({
     mutationFn: async (returns) => {
-      const user = await base44.auth.me();
+
 
       // Validate before touching anything — a blank length used to be sent
       // straight to the API, which rejected it and left the dialog looking dead.
@@ -510,7 +512,7 @@ export default function JobDetail() {
 
   const dispatchJobMutation = useMutation({
     mutationFn: async () => {
-      const user = await base44.auth.me();
+
 
       // Only live allocations get fulfilled. Sweeping Cancelled/Completed ones back
       // to Dispatched used to resurrect released rolls onto the job.

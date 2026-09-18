@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Upload, 
@@ -92,6 +93,7 @@ function customEntryError(form) {
 
 export default function Receive() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('single');
   
   // Single receive state
@@ -165,7 +167,6 @@ export default function Receive() {
 
   const createRollMutation = useMutation({
     mutationFn: async (rollData) => {
-      const user = await base44.auth.me();
       const roll = await base44.entities.Roll.create(rollData);
       await base44.entities.Transaction.create({
         transaction_type: 'ReceiveRoll',
