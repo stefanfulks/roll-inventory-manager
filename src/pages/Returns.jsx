@@ -252,7 +252,33 @@ export default function Returns() {
         throw new Error('Select at least one roll or inventory item to return.');
       }
 
+      // Idempotency: fetch existing return transactions so we can skip rolls that
+      // were already returned on a prior submit (prevents double-counting returned_ft).
+      const existingReturnTxns = await base44.entities.Transaction.filter({
+        job_id: selectedJobId,
+        transaction_type: 'ReturnFromJob',
+      });
+      const alreadyReturnedRollIds = new Set(
+        existingReturnTxns.filter(t => t.roll_id).map(t => t.roll_id),
+      );
+
+      // Map each roll to its allocation so we can persist returned_ft / used_ft.
+      const rollToAllocation = {};
+      freshAllocations.forEach(a => {
+        if (a.item_type === 'roll') {
+          (a.allocated_roll_ids || []).forEach(rid => {
+            rollToAllocation[rid] = a;
+          });
+        }
+      });
+      const allocReturnedAccum = {}; // accumulate within this submit
+
       for (const roll of selectedRolls) {
+        // Idempotency: skip rolls already returned on a prior submit.
+        if (alreadyReturnedRollIds.has(roll.id)) {
+          continue;
+        }
+
         const f = getForm(roll.id);
         const returnedLengthNum = parseFloat(f.returnedLength) || 0;
 
@@ -387,6 +413,24 @@ export default function Returns() {
           location: locName,
           childCreated: !!createdChildRoll,
         });
+
+        // Atomically persist returned_ft / used_ft on the allocation so the
+        // Allocation Summary reads from persisted values, not a transaction sum.
+        const allocation = rollToAllocation[roll.id];
+        if (allocation) {
+          const baseReturned = parseFloat(allocation.returned_ft) || 0;
+          const accum = allocReturnedAccum[allocation.id] || 0;
+          const newAccum = accum + returnedLengthNum;
+          allocReturnedAccum[allocation.id] = newAccum;
+          const totalReturned = baseReturned + newAccum;
+          const allocated =
+            parseFloat(allocation.allocated_length_ft || allocation.requested_length_ft) || 0;
+          const newUsed = Math.max(0, allocated - totalReturned);
+          await base44.entities.Allocation.update(allocation.id, {
+            returned_ft: totalReturned,
+            used_ft: newUsed,
+          });
+        }
       }
 
       // Close out allocations whose every roll has now come back, so those rolls

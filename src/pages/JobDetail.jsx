@@ -359,8 +359,34 @@ export default function JobDetail() {
         }
       }
 
+      // Idempotency: fetch existing return transactions so we can skip rolls that
+      // were already returned on a prior submit (prevents double-counting returned_ft).
+      const existingReturnTxns = await base44.entities.Transaction.filter({
+        job_id: jobId,
+        transaction_type: 'ReturnFromJob',
+      });
+      const alreadyReturnedRollIds = new Set(
+        existingReturnTxns.filter(t => t.roll_id).map(t => t.roll_id),
+      );
+
+      // Map each roll to its allocation so we can persist returned_ft / used_ft.
+      const freshAllocations = await base44.entities.Allocation.filter({ job_id: jobId });
+      const rollToAllocation = {};
+      freshAllocations.forEach(a => {
+        if (a.item_type === 'roll') {
+          (a.allocated_roll_ids || []).forEach(rid => {
+            rollToAllocation[rid] = a;
+          });
+        }
+      });
+      const allocReturnedAccum = {}; // accumulate within this submit
+
       for (const returnItem of returns) {
         if (returnItem.type === 'roll') {
+          // Idempotency: skip rolls already returned on a prior submit.
+          if (alreadyReturnedRollIds.has(returnItem.id)) {
+            continue;
+          }
           const roll = allRolls.find(r => r.id === returnItem.id);
           if (roll) {
             // Determine final status
@@ -433,9 +459,27 @@ export default function JobDetail() {
               length_change_ft: finalLength,
               length_before_ft: 0,
               length_after_ft: finalLength,
-              performed_by: user.full_name || user.email,
+              performed_by: user?.full_name || user?.email || 'Unknown',
               notes: transactionNotes
             });
+
+            // Atomically persist returned_ft / used_ft on the allocation so the
+            // Allocation Summary reads from persisted values, not a transaction sum.
+            const allocation = rollToAllocation[returnItem.id];
+            if (allocation) {
+              const baseReturned = parseFloat(allocation.returned_ft) || 0;
+              const accum = allocReturnedAccum[allocation.id] || 0;
+              const newAccum = accum + finalLength;
+              allocReturnedAccum[allocation.id] = newAccum;
+              const totalReturned = baseReturned + newAccum;
+              const allocated =
+                parseFloat(allocation.allocated_length_ft || allocation.requested_length_ft) || 0;
+              const newUsed = Math.max(0, allocated - totalReturned);
+              await base44.entities.Allocation.update(allocation.id, {
+                returned_ft: totalReturned,
+                used_ft: newUsed,
+              });
+            }
           }
         } else if (returnItem.type === 'inventory_item') {
           const inventoryItem = inventoryItems.find(i => i.id === returnItem.id);
@@ -447,10 +491,10 @@ export default function JobDetail() {
             // Increment inventory quantity (only if should add)
             if (quantityToAdd > 0) {
               await base44.entities.InventoryItem.update(returnItem.id, {
-                quantity_on_hand: (inventoryItem.quantity_on_hand || 0) + quantityToAdd
+                quantity_on_hand: (parseFloat(inventoryItem.quantity_on_hand) || 0) + quantityToAdd
               });
             }
-            
+
             // Create transaction
             await base44.entities.Transaction.create({
               transaction_type: 'ReturnFromJob',
@@ -458,7 +502,7 @@ export default function JobDetail() {
               job_id: jobId,
               job_number: job.job_number,
               product_name: inventoryItem.item_name,
-              performed_by: user.full_name || user.email,
+              performed_by: user?.full_name || user?.email || 'Unknown',
               notes: shouldAddToInventory
                 ? `Returned ${returnedQty} ${inventoryItem.unit_of_measure} from job ${job.job_number} - Added to inventory`
                 : `Returned ${returnedQty} ${inventoryItem.unit_of_measure} from job ${job.job_number} - Used/Opened, not added to inventory`
@@ -700,8 +744,16 @@ export default function JobDetail() {
     .filter(a => ALLOCATED_STATUSES.includes(a.status))
     .reduce((sum, a) => sum + (a.requested_length_ft || 0), 0);
   
-  const totalReturned = returnTransactions.reduce((sum, t) => sum + (t.length_change_ft || 0), 0);
-  const totalUsed = totalAllocatedSentOut - totalReturned;
+  // Read Returned and Used from persisted allocation fields (returned_ft / used_ft)
+  // rather than summing transactions — this prevents double-counting on retry and
+  // keeps the summary in sync with the atomic writes from the returns flow.
+  const activeTurfAllocations = turfAllocations.filter(a => ALLOCATED_STATUSES.includes(a.status));
+  const totalReturned = activeTurfAllocations.reduce((sum, a) => sum + (a.returned_ft || 0), 0);
+  const totalUsed = activeTurfAllocations.reduce((sum, a) => {
+    if (a.used_ft != null) return sum + a.used_ft;
+    const allocated = a.requested_length_ft || a.allocated_length_ft || 0;
+    return sum + Math.max(0, allocated - (a.returned_ft || 0));
+  }, 0);
   const turfVariance = totalUsed - (job.requested_total_turf_length_ft || 0);
 
   // Anything still live on the job can come back. Previously this only accepted
