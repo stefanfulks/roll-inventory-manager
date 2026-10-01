@@ -222,12 +222,76 @@ export default function JobDetail() {
   const updateAllocationStatusMutation = useMutation({
     mutationFn: async ({ allocationId, status }) => {
       const allocation = allocations.find(a => a.id === allocationId);
+      const previousStatus = allocation?.status;
+
       await updateAllocationStatusWithSync(allocationId, status, allocation);
+
+      // Mirror the "Mark as Fulfilled" side-effects when a line moves to Dispatched
+      // (shown as "Fulfilled") via the dropdown. Lines that were already
+      // Dispatched/Completed are skipped so nothing is decremented twice.
+      const becomingFulfilled =
+        status === ALLOCATION_STATUS.DISPATCHED &&
+        previousStatus !== ALLOCATION_STATUS.DISPATCHED &&
+        previousStatus !== ALLOCATION_STATUS.COMPLETED;
+
+      if (!becomingFulfilled || !allocation) return;
+
+      if (allocation.item_type === 'inventory_item' && allocation.item_id) {
+        const inventoryItem = inventoryItems.find(i => i.id === allocation.item_id);
+        if (inventoryItem) {
+          const shipped = parseFloat(allocation.requested_quantity) || 1;
+          await base44.entities.InventoryItem.update(allocation.item_id, {
+            quantity_on_hand: Math.max(0, (inventoryItem.quantity_on_hand || 0) - shipped)
+          });
+
+          await base44.entities.Transaction.create({
+            transaction_type: 'SendOutToJob',
+            fulfillment_for: job.fulfillment_for,
+            job_id: jobId,
+            job_number: job.job_number,
+            product_name: inventoryItem.item_name,
+            performed_by: user.full_name || user.email,
+            notes: `Fulfilled ${allocation.requested_quantity || 1} ${inventoryItem.unit_of_measure} to job ${job.job_number}`
+          });
+        }
+      } else if (allocation.item_type === 'roll' && allocation.allocated_roll_ids?.length > 0) {
+        for (const rollId of allocation.allocated_roll_ids) {
+          // Only create the SendOutToJob transaction if one doesn't already exist.
+          const existing = await base44.entities.Transaction.filter({
+            job_id: jobId,
+            transaction_type: 'SendOutToJob',
+            roll_id: rollId,
+          });
+          if (existing.length > 0) continue;
+
+          const roll = allRolls.find(r => r.id === rollId);
+          if (roll) {
+            await base44.entities.Transaction.create({
+              transaction_type: 'SendOutToJob',
+              fulfillment_for: job.fulfillment_for,
+              roll_id: rollId,
+              tt_sku_tag_number: roll.tt_sku_tag_number || roll.roll_tag,
+              job_id: jobId,
+              job_number: job.job_number,
+              product_name: roll.product_name,
+              dye_lot: roll.dye_lot,
+              width_ft: roll.width_ft,
+              length_change_ft: -roll.current_length_ft,
+              length_before_ft: roll.current_length_ft,
+              length_after_ft: 0,
+              performed_by: user.full_name || user.email,
+              notes: `Fulfilled to job ${job.job_number}`
+            });
+          }
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
       queryClient.invalidateQueries({ queryKey: ['allocations'] });
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
+      queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
       toast.success('Allocation status updated');
     },
   });
