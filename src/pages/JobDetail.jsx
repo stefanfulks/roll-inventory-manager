@@ -558,25 +558,29 @@ export default function JobDetail() {
     mutationFn: async () => {
 
 
-      // Only live allocations get fulfilled. Sweeping Cancelled/Completed ones back
-      // to Dispatched used to resurrect released rolls onto the job.
-      const toDispatch = allocations.filter(
-        a =>
-          a.status !== ALLOCATION_STATUS.CANCELLED &&
-          a.status !== ALLOCATION_STATUS.COMPLETED &&
-          a.status !== ALLOCATION_STATUS.DISPATCHED,
+      // Any real line on the job (turf or other inventory) counts as active.
+      const activeLines = allocations.filter(
+        a => a.status !== ALLOCATION_STATUS.CANCELLED,
       );
 
-      if (toDispatch.length === 0) {
+      if (activeLines.length === 0) {
         throw new Error(
           'Nothing on this job is ready to fulfil. Add products to the job first.',
         );
       }
 
+      // Lines already Dispatched (shown as "Fulfilled") or Completed are skipped so
+      // nothing is decremented twice — but they still count as active above.
+      const toFulfil = activeLines.filter(
+        a =>
+          a.status !== ALLOCATION_STATUS.DISPATCHED &&
+          a.status !== ALLOCATION_STATUS.COMPLETED,
+      );
+
       // Pre-check inventory before touching anything — failing mid-flight used to
       // leave some allocations dispatched and others not, with no way to retry.
       // Catching a shortfall up front keeps the operation atomic.
-      for (const allocation of toDispatch) {
+      for (const allocation of toFulfil) {
         if (allocation.item_type === 'inventory_item' && allocation.item_id) {
           const item = inventoryItems.find(i => i.id === allocation.item_id);
           if (!item) {
@@ -594,7 +598,7 @@ export default function JobDetail() {
 
       await base44.entities.Job.update(jobId, { status: 'Dispatched' });
 
-      for (const allocation of toDispatch) {
+      for (const allocation of toFulfil) {
         if (allocation.item_type === 'roll' && allocation.allocated_roll_ids?.length > 0) {
           for (const rollId of allocation.allocated_roll_ids) {
             await base44.entities.Roll.update(rollId, {
@@ -656,7 +660,8 @@ export default function JobDetail() {
       queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
       queryClient.invalidateQueries({ queryKey: ['inventoryItems'] });
-      toast.success('Job dispatched successfully');
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      toast.success('Job marked as fulfilled');
     },
     onError: (error) => {
       console.error('[Dispatch] failed:', error);
