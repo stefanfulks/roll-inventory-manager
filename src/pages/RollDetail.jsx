@@ -352,6 +352,32 @@ export default function RollDetail() {
       const currentLength = Number(form.current_length_ft);
       const originalLength = Number(form.original_length_ft);
 
+      const newTag = String(form.tt_sku_tag_number ?? '').trim();
+      if (!newTag) throw new Error('Roll # (tag) must not be empty.');
+
+      const oldTag = String(roll.tt_sku_tag_number || roll.roll_tag || '').trim();
+      const tagChanged = newTag !== oldTag;
+
+      if (tagChanged) {
+        // Any status counts as "in use" — a scrapped or dispatched roll still owns its number.
+        const allRolls = await base44.entities.Roll.list('-created_date', 1000);
+        const sameTag = (a, b) => {
+          const s1 = String(a ?? '').trim().toLowerCase();
+          const s2 = String(b ?? '').trim().toLowerCase();
+          if (!s1 || !s2) return false;
+          if (s1 === s2) return true;
+          const n1 = parseFloat(s1);
+          const n2 = parseFloat(s2);
+          return Number.isFinite(n1) && Number.isFinite(n2) && n1 === n2;
+        };
+        const clash = allRolls.find(r =>
+          r.id !== rollId && sameTag(r.tt_sku_tag_number || r.roll_tag, newTag)
+        );
+        if (clash) {
+          throw new Error(`Roll # ${newTag} is already used by another roll. Pick a different number.`);
+        }
+      }
+
       if (!form.product_id) throw new Error('Pick a product.');
       if (!Number.isFinite(width) || width <= 0) throw new Error('Width must be a number greater than zero.');
       if (!Number.isFinite(currentLength) || currentLength <= 0) {
@@ -368,6 +394,7 @@ export default function RollDetail() {
       const isChild = form.roll_type === 'Child';
 
       await base44.entities.Roll.update(rollId, {
+        ...(tagChanged ? { tt_sku_tag_number: newTag } : {}),
         product_id: form.product_id,
         product_name: form.product_name,
         manufacturer_roll_number: form.manufacturer_roll_number || null,
@@ -383,6 +410,21 @@ export default function RollDetail() {
         parent_roll_id: isChild ? form.parent_roll_id : null,
         parent_tt_sku_tag_number: isChild ? (form.parent_tt_sku_tag_number || null) : null,
       });
+
+      if (tagChanged) {
+        await base44.entities.Transaction.create({
+          transaction_type: 'Adjustment',
+          roll_id: rollId,
+          tt_sku_tag_number: newTag,
+          old_tag_number: oldTag || null,
+          new_tag_number: newTag,
+          product_name: form.product_name,
+          dye_lot: form.dye_lot || null,
+          width_ft: width,
+          performed_by: user.full_name || user.email,
+          notes: `Roll # changed from ${oldTag || '(none)'} to ${newTag}`,
+        });
+      }
 
       const rawBefore = Number(roll.current_length_ft);
       const lengthBefore = Number.isFinite(rawBefore) ? rawBefore : null;
@@ -462,6 +504,7 @@ export default function RollDetail() {
 
   const openEditDialog = () => {
     setEditForm({
+      tt_sku_tag_number: roll.tt_sku_tag_number || roll.roll_tag || '',
       product_id: roll.product_id || '',
       product_name: roll.product_name || '',
       manufacturer_roll_number: roll.manufacturer_roll_number || '',
@@ -818,6 +861,18 @@ export default function RollDetail() {
                 Status stays with the Edit Status button so job allocations don&apos;t get out of sync.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <Label htmlFor="edit-roll-tag">Roll # (tag)</Label>
+                  <Input
+                    id="edit-roll-tag"
+                    value={editForm.tt_sku_tag_number}
+                    onChange={(e) => patchEditForm({ tt_sku_tag_number: e.target.value })}
+                    placeholder="e.g. 2723"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    This is the number shown on the roll page header and used when scanning or searching.
+                  </p>
+                </div>
                 <div className="md:col-span-2">
                   <Label htmlFor="edit-product">Product</Label>
                   <Select
