@@ -16,6 +16,7 @@ import { Search, RefreshCw } from 'lucide-react';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { toast } from 'sonner';
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { getPerformedBy } from '@/lib/getPerformedBy';
 import { releaseRoll, syncRollToAllocation } from '@/lib/rollStatus';
 import { describeError } from '@/lib/query-client';
 
@@ -74,7 +75,7 @@ export default function SwapRollDialog({
         product_name: currentRoll.product_name,
         dye_lot: currentRoll.dye_lot,
         width_ft: currentRoll.width_ft,
-        performed_by: user.full_name || user.email,
+        performed_by: getPerformedBy(user),
         notes: `Released from job ${job.job_number} - physically inaccessible, swapped with ${replacementRoll.tt_sku_tag_number}`
       });
 
@@ -88,7 +89,7 @@ export default function SwapRollDialog({
         product_name: replacementRoll.product_name,
         dye_lot: replacementRoll.dye_lot,
         width_ft: replacementRoll.width_ft,
-        performed_by: user.full_name || user.email,
+        performed_by: getPerformedBy(user),
         notes: `Allocated for job ${job.job_number} - swapped from ${currentRoll.tt_sku_tag_number}`
       });
     },

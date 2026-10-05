@@ -18,6 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { ROLL_STATUS, STATUS_LABELS } from '@/lib/rollStatus';
+import { getPerformedBy } from '@/lib/getPerformedBy';
 
 const CONDITION_OPTIONS = ['Good', 'Used', 'Damaged', 'Scrap'];
 
@@ -163,7 +164,7 @@ export default function UnmarkedReturnForm({ onCancel, onSuccess }) {
           length_before_ft: 0,
           length_after_ft: storedLength,
           location_to: loc?.name || '',
-          performed_by: user.full_name || user.email,
+          performed_by: getPerformedBy(user),
           notes: `Unmarked return — no source job. Condition ${row.condition}. ${row.notes || ''}`.trim(),
         });
 

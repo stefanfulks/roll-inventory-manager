@@ -32,6 +32,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import UnmarkedReturnForm from '@/components/returns/UnmarkedReturnForm';
 import { ROLL_STATUS, STATUS_LABELS } from '@/lib/rollStatus';
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { getPerformedBy } from '@/lib/getPerformedBy';
 
 const CONDITION_OPTIONS = ['Good', 'Used', 'Damaged', 'Scrap'];
 
@@ -398,7 +399,7 @@ export default function Returns() {
           length_before_ft: 0,
           length_after_ft: returnedLengthNum,
           location_to: locName,
-          performed_by: user.full_name || user.email,
+          performed_by: getPerformedBy(user),
           notes: `${isFull ? 'Full' : 'Partial'} return — condition ${f.condition}. ${f.notes || ''}`.trim(),
         });
 
@@ -495,7 +496,7 @@ export default function Returns() {
           job_id: selectedJobId,
           job_number: selectedJob?.job_number,
           product_name: inventoryItem.item_name,
-          performed_by: user.full_name || user.email,
+          performed_by: getPerformedBy(user),
           notes: shouldAddToInventory
             ? `Returned ${returnedQty} ${inventoryItem.unit_of_measure} from job ${selectedJob?.job_number || ''} — Added to inventory`
             : `Returned ${returnedQty} ${inventoryItem.unit_of_measure} from job ${selectedJob?.job_number || ''} — Opened/used, not added to inventory`,

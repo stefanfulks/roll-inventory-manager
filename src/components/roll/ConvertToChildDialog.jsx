@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { getPerformedBy } from '@/lib/getPerformedBy';
 import { convertParentToChild } from '@/lib/rollConversion';
 import { describeError } from '@/lib/query-client';
 
@@ -60,7 +61,7 @@ export default function ConvertToChildDialog({ open, onOpenChange, roll }) {
       return convertParentToChild({
         rollId: roll.id,
         newParentId: selectedParentId,
-        performedBy: user.full_name || user.email,
+        performedBy: getPerformedBy(user),
         notes,
       });
     },

@@ -45,6 +45,7 @@ import {
   updateAllocationStatusWithSync,
 } from '@/lib/rollStatus';
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { getPerformedBy } from '@/lib/getPerformedBy';
 
 const DISPOSITION_OPTIONS = [
   { value: ROLL_STATUS.AVAILABLE, label: 'Release to Available inventory' },
@@ -184,7 +185,7 @@ export default function PendingReturns() {
         length_before_ft: lengthBefore,
         length_after_ft: toAvailable ? lengthBefore : 0,
         location_to: toAvailable ? loc.name : reviewRoll.location_name,
-        performed_by: user.full_name || user.email,
+        performed_by: getPerformedBy(user),
         notes: `Pending review finalized: ${STATUS_LABELS[reviewForm.disposition]}.${
           toAvailable ? '' : ` Wrote off ${lengthBefore}ft.`
         } ${reviewForm.notes || ''}`.trim(),

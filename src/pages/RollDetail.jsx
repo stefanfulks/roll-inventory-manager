@@ -46,6 +46,7 @@ import {
   findActiveAllocationForRoll,
 } from '@/lib/rollStatus';
 import { formatFeetInches, parseLocalDate } from '@/lib/dateHelpers';
+import { getPerformedBy } from '@/lib/getPerformedBy';
 import { describeError } from '@/lib/query-client';
 
 const ROLL_CONDITION_OPTIONS = ['New', 'Good', 'Used', 'Damaged', 'Scrap'];
@@ -174,7 +175,7 @@ export default function RollDetail() {
         product_name: roll.product_name,
         dye_lot: roll.dye_lot,
         width_ft: roll.width_ft,
-        performed_by: user.full_name || user.email,
+        performed_by: getPerformedBy(user),
         notes: `Planned for job ${job.job_number}`,
       });
     },
@@ -232,7 +233,7 @@ export default function RollDetail() {
         product_name: roll.product_name,
         dye_lot: roll.dye_lot,
         width_ft: roll.width_ft,
-        performed_by: user.full_name || user.email,
+        performed_by: getPerformedBy(user),
         notes: `Allocated for job ${job.job_number}`,
       });
     },
@@ -329,7 +330,7 @@ export default function RollDetail() {
         length_change_ft: (tx.length_before_ft || 0) - (tx.length_after_ft || 0),
         length_before_ft: tx.length_after_ft,
         length_after_ft: tx.length_before_ft,
-        performed_by: user.full_name || user.email,
+        performed_by: getPerformedBy(user),
         notes: childRoll
           ? `Reversed: ${tx.transaction_type}. Removed child roll ${childRoll.tt_sku_tag_number || childRoll.roll_tag}.`
           : `Reversed: ${tx.transaction_type}`,
@@ -421,7 +422,7 @@ export default function RollDetail() {
           product_name: form.product_name,
           dye_lot: form.dye_lot || null,
           width_ft: width,
-          performed_by: user.full_name || user.email,
+          performed_by: getPerformedBy(user),
           notes: `Roll # changed from ${oldTag || '(none)'} to ${newTag}`,
         });
       }
@@ -440,7 +441,7 @@ export default function RollDetail() {
           length_before_ft: lengthBefore,
           length_after_ft: currentLength,
           length_change_ft: lengthBefore == null ? null : currentLength - lengthBefore,
-          performed_by: user.full_name || user.email,
+          performed_by: getPerformedBy(user),
           notes: 'Manual correction of roll details — length edited by hand, not by a cut, job, or return.',
         });
       }

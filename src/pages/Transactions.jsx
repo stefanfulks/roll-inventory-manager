@@ -29,6 +29,7 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { safeFormat } from '@/lib/dateHelpers';
 import { describeError } from '@/lib/query-client';
+import { getPerformedBy } from '@/lib/getPerformedBy';
 import {
   ROLL_STATUS,
   STATUS_LABELS,
@@ -148,7 +149,7 @@ export default function Transactions() {
         length_change_ft: (tx.length_before_ft || 0) - (tx.length_after_ft || 0),
         length_before_ft: tx.length_after_ft,
         length_after_ft: tx.length_before_ft,
-        performed_by: user.full_name || user.email,
+        performed_by: getPerformedBy(user),
         notes: `Reversed transaction: ${tx.transaction_type} (original tx id: ${tx.id})`,
       });
     },

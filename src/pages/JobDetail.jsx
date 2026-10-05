@@ -63,6 +63,7 @@ import {
 } from '@/lib/rollStatus';
 import { formatFeetInches } from '@/lib/dateHelpers';
 import { describeError } from '@/lib/query-client';
+import { getPerformedBy } from '@/lib/getPerformedBy';
 
 export default function JobDetail() {
   const queryClient = useQueryClient();
@@ -250,7 +251,7 @@ export default function JobDetail() {
             job_id: jobId,
             job_number: job.job_number,
             product_name: inventoryItem.item_name,
-            performed_by: user.full_name || user.email,
+            performed_by: getPerformedBy(user),
             notes: `Fulfilled ${allocation.requested_quantity || 1} ${inventoryItem.unit_of_measure} to job ${job.job_number}`
           });
         }
@@ -279,7 +280,7 @@ export default function JobDetail() {
               length_change_ft: -roll.current_length_ft,
               length_before_ft: roll.current_length_ft,
               length_after_ft: 0,
-              performed_by: user.full_name || user.email,
+              performed_by: getPerformedBy(user),
               notes: `Fulfilled to job ${job.job_number}`
             });
           }
@@ -287,6 +288,7 @@ export default function JobDetail() {
       }
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       queryClient.invalidateQueries({ queryKey: ['allocations', jobId] });
       queryClient.invalidateQueries({ queryKey: ['allocations'] });
       queryClient.invalidateQueries({ queryKey: ['rolls'] });
@@ -686,7 +688,7 @@ export default function JobDetail() {
                 length_change_ft: -roll.current_length_ft,
                 length_before_ft: roll.current_length_ft,
                 length_after_ft: 0,
-                performed_by: user.full_name || user.email,
+                performed_by: getPerformedBy(user),
                 notes: `Fulfilled to job ${job.job_number}`
               });
             }
@@ -708,7 +710,7 @@ export default function JobDetail() {
               job_id: jobId,
               job_number: job.job_number,
               product_name: inventoryItem.item_name,
-              performed_by: user.full_name || user.email,
+              performed_by: getPerformedBy(user),
               notes: `Fulfilled ${allocation.requested_quantity || 1} ${inventoryItem.unit_of_measure} to job ${job.job_number}`
             });
           }

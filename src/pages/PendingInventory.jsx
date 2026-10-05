@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatFeetInches } from '@/lib/dateHelpers';
+import { getPerformedBy } from '@/lib/getPerformedBy';
 import { describeError } from '@/lib/query-client';
 import { ROLL_STATUS, TRANSACTION_TYPE } from '@/lib/rollStatus';
 
@@ -71,7 +72,7 @@ export default function PendingInventory() {
           length_before_ft: roll.current_length_ft,
           length_after_ft: roll.current_length_ft,
           location_to: data.location_name,
-          performed_by: user.full_name || user.email,
+          performed_by: getPerformedBy(user),
           notes: `Tag reassigned: ${previousTag || '(none)'} → ${data.tt_sku_tag_number}. Shelved at ${data.location_name}.`,
         });
       }
