@@ -39,6 +39,20 @@ function roundFeet(value) {
 // as 0' — it must not stay Available and be offered for cutting again.
 const MIN_REMNANT_FT = 1 / 12;
 
+// Tags are matched exactly (as before), so any regex character the user types
+// must be escaped or it would match more than the tag they asked for.
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// What makes a roll cuttable: on hand with footage left. Deliberately says
+// nothing about roll_type or parent_roll_id — a child roll is cut exactly like
+// a parent, and the cut produces the next generation of the same lineage.
+const CUTTABLE_ROLL_QUERY = {
+  status: ROLL_STATUS.AVAILABLE,
+  current_length_ft: { $gt: 0 },
+};
+
 function generateRollTag() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let result = 'C-';
@@ -65,6 +79,7 @@ export default function CutRoll() {
   const [destination, setDestination] = useState('inventory');
   const [selectedJobId, setSelectedJobId] = useState('');
   const [selectedLocationId, setSelectedLocationId] = useState('');
+  const [searching, setSearching] = useState(false);
 
   // Parse "feet-inches" input like "10-6" → 10.5 ft. Anything that is neither the
   // strict dash form nor a plain decimal is rejected — a partial parse would
@@ -86,16 +101,10 @@ export default function CutRoll() {
   const [newTTSku, setNewTTSku] = useState('');
   const [createdChild, setCreatedChild] = useState(null);
 
-  // This page needs a filtered slice of rolls, so it must NOT share the plain
-  // ['rolls'] key that Dashboard/Reports/Returns use for the full list.
-  const { data: rolls = [] } = useQuery({
-    queryKey: ['rolls', 'available-parents'],
-    queryFn: () => base44.entities.Roll.filter(
-      { status: ROLL_STATUS.AVAILABLE, roll_type: 'Parent' },
-      '-created_date',
-      500
-    ),
-  });
+  // The roll to cut is looked up on the server by tag instead of out of a
+  // pre-loaded list. A roll is cuttable whenever it is on hand with footage
+  // left — parent or child, at any depth. The old query also required
+  // roll_type 'Parent', which is exactly why child rolls never appeared.
 
   const { data: locations = [] } = useQuery({
     queryKey: ['locations'],
@@ -112,18 +121,46 @@ export default function CutRoll() {
     },
   });
 
-  // Load preselected roll — once only. Re-applying it on every refetch would
+  // Only a roll that is on hand with footage left can be cut — the same rule the
+  // search applies, so a deep link can never preselect something uncuttable.
+  const isCuttable = (roll) =>
+    !!roll &&
+    roll.status === ROLL_STATUS.AVAILABLE &&
+    Number(roll.current_length_ft) > 0;
+
+  // Load preselected roll — once only. Re-applying it on every render would
   // snap a manually searched selection back to the URL's roll mid-cut.
   const hasPreselected = useRef(false);
   useEffect(() => {
-    if (hasPreselected.current || !preselectedRollId || rolls.length === 0) return;
-    const roll = rolls.find(r => r.id === preselectedRollId);
-    if (!roll) return;
+    if (hasPreselected.current || !preselectedRollId) return;
     hasPreselected.current = true;
-    setSelectedRoll(roll);
-  }, [preselectedRollId, rolls]);
+    base44.entities.Roll.get(preselectedRollId)
+      .then((roll) => {
+        if (isCuttable(roll)) setSelectedRoll(roll);
+      })
+      .catch(() => {
+        // Deep link to a deleted roll — nothing to preselect.
+      });
+  }, [preselectedRollId]);
 
-  const handleSearch = (searchTerm) => {
+  // Exact tag match, server-side, so the picker isn't capped by a pre-loaded
+  // page of rolls. Parent and child rolls go through this same lookup.
+  const findRollByTag = async (term, query = CUTTABLE_ROLL_QUERY) => {
+    const pattern = `^${escapeRegex(term)}$`;
+    const bySku = await base44.entities.Roll.filter(
+      { ...query, tt_sku_tag_number: { $regex: pattern, $options: 'i' } },
+      { sort: '-created_date', limit: 1 }
+    );
+    if (bySku.items?.length) return bySku.items[0];
+
+    const byTag = await base44.entities.Roll.filter(
+      { ...query, roll_tag: { $regex: pattern, $options: 'i' } },
+      { sort: '-created_date', limit: 1 }
+    );
+    return byTag.items?.[0] || null;
+  };
+
+  const handleSearch = async (searchTerm) => {
     const term = (searchTerm || '').trim();
     // Clearing the box is a reset, not a failed lookup.
     if (!term) {
@@ -131,15 +168,26 @@ export default function CutRoll() {
       setCreatedChild(null);
       return;
     }
-    const found = rolls.find(r =>
-      r.tt_sku_tag_number?.toLowerCase() === term.toLowerCase() ||
-      r.roll_tag?.toLowerCase() === term.toLowerCase()
-    );
-    if (found) {
-      setSelectedRoll(found);
-      setCreatedChild(null);
-    } else {
-      toast.error('Roll not found, not available, or not a parent roll');
+    setSearching(true);
+    try {
+      const found = await findRollByTag(term);
+      if (found) {
+        setSelectedRoll(found);
+        setCreatedChild(null);
+      } else {
+        // Say why it can't be cut instead of a blanket "not found": the tag may
+        // exist but be allocated to a job, scrapped, or awaiting review.
+        const existing = await findRollByTag(term, {});
+        if (existing) {
+          toast.error(`Roll ${term} is ${existing.status} — only Available rolls can be cut`);
+        } else {
+          toast.error('Roll not found, or it has no remaining length');
+        }
+      }
+    } catch (err) {
+      toast.error(`Search failed: ${describeError(err)}`);
+    } finally {
+      setSearching(false);
     }
   };
 
@@ -324,7 +372,7 @@ export default function CutRoll() {
         </Link>
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold text-slate-800">Cut Roll</h1>
-          <p className="text-slate-500 mt-1">Create a child roll from a parent roll</p>
+          <p className="text-slate-500 mt-1">Cut a new child roll from any available roll</p>
         </div>
       </div>
 
@@ -332,8 +380,8 @@ export default function CutRoll() {
         {/* Search & Select */}
         <Card className="rounded-2xl border-slate-100 shadow-sm">
           <CardHeader>
-            <CardTitle>1. Search Parent Roll</CardTitle>
-            <CardDescription>Search for an available roll by TT SKU #</CardDescription>
+            <CardTitle>1. Search Roll</CardTitle>
+            <CardDescription>Search any available roll by TT SKU # — parent or child</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <RollSearch 
@@ -341,6 +389,9 @@ export default function CutRoll() {
               placeholder="Search TT SKU #..."
               autoFocus
             />
+            {searching && (
+              <p className="text-sm text-slate-500">Searching…</p>
+            )}
 
             {selectedRoll && (
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
